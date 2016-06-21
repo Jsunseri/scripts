@@ -1,0 +1,3 @@
+#!/bin/bash
+
+wget http://www.rcsb.org/pdb/files/$1.pdb

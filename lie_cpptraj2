@@ -1,0 +1,6 @@
+#!/bin/bash
+
+echo "parm ${1}.prmtop"
+echo "trajin ${1}.dcd"
+echo "lie COMPLEX :${2} out cpptraj_lie.out"
+echo "run"

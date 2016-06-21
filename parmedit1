@@ -1,0 +1,16 @@
+#!/bin/bash
+
+echo "parm ${2}receptor.prmtop"
+echo "parm ${1}_dry.prmtop"
+echo "parm com_dry.prmtop"
+echo "parm rec_dry.prmtop"
+echo "changeRadii mbondi2 parm 0"
+echo "change AMBER_ATOM_TYPE @CB,CD,CE,CG,CG1 C parm 0"
+echo "change AMBER_ATOM_TYPE @CB,CD,CE,CG,CG1 C parm 1"
+echo "change AMBER_ATOM_TYPE @CB,CD,CE,CG,CG1 C parm 2"
+echo "change AMBER_ATOM_TYPE @CB,CD,CE,CG,CG1 C parm 3"
+echo "outparm ${2}receptor_mmpbsa.prmtop parm 0"
+echo "outparm ${1}_mmpbsa.prmtop parm 1"
+echo "outparm com_mmpbsa.prmtop parm 2"
+echo "outparm rec_mmpbsa.prmtop parm 3"
+echo "quit"

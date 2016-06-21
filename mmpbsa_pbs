@@ -1,0 +1,31 @@
+#!/bin/bash
+
+id=${1}
+lig=${2}
+
+#Prep run script for running on the cluster
+rm -f run.pbs
+echo "#!/bin/bash" >> run.pbs
+echo "#PBS -N ${id}" >> run.pbs
+echo "#PBS -j oe" >> run.pbs
+echo "#PBS -l nodes=1:ppn=1" >> run.pbs
+echo "#PBS -l walltime=28:00:00:00" >> run.pbs
+echo "#PBS -q noc_64_core" >> run.pbs
+echo "echo Running on \`hostname\`" >> run.pbs
+echo "echo workdir \$PBS_O_WORKDIR" >> run.pbs
+echo "echo ld_library_path \$LD_LIBRARY_PATH" >> run.pbs
+echo "cd \$PBS_O_WORKDIR" >> run.pbs
+echo "SCRDIR=/scr/\$PBS_JOBID" >> run.pbs
+echo "if [[ ! -e \$SCRDIR ]]; then" >> run.pbs
+echo "	mkdir \$SCRDIR" >> run.pbs
+echo "fi" >> run.pbs
+echo "echo scratch drive \${SCRDIR}" >> run.pbs
+echo "cp \$PBS_O_WORKDIR/* \${SCRDIR}" >> run.pbs
+echo "cd \${SCRDIR}" >> run.pbs
+echo "source /usr/local/amber14/amber.sh" >> run.pbs
+#echo "AMBERHOME=/usr/local/amber14" >> run.pbs
+#echo "PATH=/usr/local/amber14/bin:\$PATH" >> run.pbs
+echo 'trap "find . -type f -name _MMPBSA\* -exec cp {} \$PBS_O_WORKDIR \\;" EXIT' >> run.pbs
+echo "MMPBSA.py -O -i mmpbsa.in -o mmpbsa.dat -sp ${lig}receptor_mmpbsa.prmtop -cp com_mmpbsa.top -rp rec_mmpbsa.top -lp ${lig}_mmpbsa.prmtop -y ${lig}receptor.dcd" >> run.pbs
+echo "cp mmpbsa.dat \$PBS_O_WORKDIR" >> run.pbs
+echo "exit" >> run.pbs
