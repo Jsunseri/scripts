@@ -28,6 +28,6 @@ def LIE(f1, f2):
 	dGbind = (0.16 * delVdw + 0.5 * delElec)
 	error = np.sqrt((0.16*errV)**2 + (0.5 * errE)**2)
 
-	return dGbind,error
+	return dGbind
 
 print LIE(sys.argv[1],sys.argv[2])
