@@ -1,0 +1,11 @@
+#!/bin/bash
+
+#convert prepare_amber mdcrd md2 to dcd, takes basename and number of residues
+#just print out the contents of an input file
+
+echo "parm ${1}.prmtop"
+echo "trajin ${1}_md3.nc 1 last 10 "
+echo "autoimage"
+echo "rms first @CA"
+echo "trajout ${1}.dcd dcd "
+
