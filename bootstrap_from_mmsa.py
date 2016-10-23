@@ -35,11 +35,11 @@ solvent = ['p', 'g']
 for dir in dirs:
     for i in range(1,51):
         for traj in trajs:
-            os.chdir('/mnt/dvorak/net/pulsar/home/koes/jss97/profilin/' + dir + '/run' + str(i) +
-                    '_shorter/' + traj + '_enthalpy')
+            os.chdir('/mnt/dvorak/net/pulsar/home/koes/jss97/coveney/' + dir + '/run' + str(i) +
+                    '/' + traj + '_enthalpy')
             readin_dat(dat, dir, traj)
 
-os.chdir('/home/jocelynsunseri/Documents/profilin/')
+os.chdir('/mnt/dvorak/net/pulsar/home/koes/jss97/coveney')
 dframe = pd.DataFrame(dat)
 
 # Bootstrap each subset and compute the standard deviation of the resulting
