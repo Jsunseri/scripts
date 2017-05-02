@@ -1,7 +1,8 @@
 #!/usr/bin/python
 
 import argparse
-import parsepdb as pdb
+import simplepdb as pdb
+import pdb_util as util
 import os, shutil, glob
 from plumbum.cmd import sed, grep, cut, uniq, wc
 try:
@@ -20,89 +21,6 @@ def get_cmd(input_str):
     ext = os.path.splitext(input_str)[-1]
     return cmd_dict[ext]
 
-def get_base(fname):
-    '''
-    Strip path and extension from filename in order to generate other filenames
-    '''
-    return os.path.splitext(os.path.basename(fname))[0]
-
-def get_fname(fname):
-    '''
-    Generate a filename that doesn't overwrite anything in the current
-    directory
-    '''
-    i = 0
-    base,ext = fname.split('_')
-    if ext: ext = '_' + ext
-    while 1:
-        if i == 0:
-            fname = base + ext
-        else:
-            fname = base + str(i) + ext
-        if os.path.isfile(fname):
-            i += 1
-        else:
-            return fname
-
-def get_molname(molname):
-    '''
-    Generate a unique molname, important if there are multiple mols
-    '''
-    molname = molname[:3].upper()
-    while os.path.isfile(molname + '.lib'):
-        num = ''.join(m for m in molname if m.isdigit())
-        num = int(num)+1 if num else 1
-        numstr = str(num)
-        molname = ''.join(m for m in molname if m.isalpha())
-        molname = molname[:3-len(numstr)] + numstr
-    return molname
-
-def get_units(lib):
-    '''
-    Get the names of the units defined by an AMBER library file
-    '''
-    units = []
-    ext = os.path.splitext(lib)[-1]
-    with open(lib,'r') as f:
-        if ext != 'prep':
-            copy = False
-            for line in f:
-                if line.startswith('!!index array str'):
-                    copy = True
-                elif line.startswith('!'):
-                    break
-                elif copy:
-                    units.append(line.strip('"'))
-        else:
-            i = 0
-            for line in f:
-                if i == 4:
-                    units.append(line.split()[0])
-                    break
-                i += 1
-    return units
-
-def get_charge(mol2):
-    '''
-    Get the net charge on a molecule from a structure file. Currently only
-    works with mol2 format
-    '''
-    with open(mol2, 'r') as f:
-        copy = False
-        charge = 0
-        for line in f:
-            if line.startswith('@'):
-                record = line.split('>')[-1]
-                if record == 'ATOM':
-                    copy = True 
-                elif record != 'ATOM':
-                    if copy == True:
-                        break
-                    else:
-                        continue
-            elif (copy == True):
-                charge += float(line.split()[-1])
-    return charge 
 
 def make_amber_parm(fname, base, ff, wat_dist = 0, libs=[]):
     '''
@@ -160,7 +78,6 @@ def do_amber_min(base):
     '''
     Do unconstrained AMBER minimization 
     '''
-    #TODO: assumes order and naming convention
     with open(base + '_min2.in', 'w') as min_input:
         min_input.write(base + ':  minimization whole system\n' + 
             ' &cntrl\n' + 
@@ -178,7 +95,6 @@ def do_amber_warmup(base, temperature):
     '''
     Do AMBER MD to gradually increase system to target temp
     '''
-    #TODO: assumes order and naming convention
     numres = (grep['ATOM', base + '.pdb'] | cut['-b', '23-26'] | uniq | wc)()
     with open(base + '_md1.in','w') as md_input:
         md_input.write(' &cntrl\n' + 
@@ -218,7 +134,6 @@ def do_amber_constant_pressure(base):
     '''
     Do AMBER MD to equilibrate system at constant pressure
     '''
-    #TODO: assumes order and naming convention
     with open(base + '_md2.in','w') as md_input:
         md_input.write(base + ': 100ps MD\n' + 
              ' &cntrl\n' + 
@@ -237,7 +152,7 @@ def do_amber_constant_pressure(base):
             base+'.prmtop', '-c', base+'_md1.rst', '-r', base+'_md2.rst',
             '-x', base+'_md2.nc']()
 
-def make_amber_production_input(base, length, keep_velocities):
+def make_amber_production_input(base, length, keep_velocities, coord_dump_freq):
     '''
     Make input files for production run AMBER MD; length is in nanoseconds
     '''
@@ -255,11 +170,11 @@ def make_amber_production_input(base, length, keep_velocities):
             '  tempi = $temp, temp0 = $temp,\n' + 
             '  ntt = 3, gamma_ln = 1.0,\n' + 
             '  nstlim = '+nstlim+', dt = 0.002, ntxo = 2,\n' + 
-            '  ntpr = 5000, ntwx = 5000, ntwr = 500000,\n' + 
+            '  ntpr = 5000, ntwx = '+coord_dump_freq+', ntwr = 500000,\n' + 
             '  ioutfm = 1\n' + 
              '/\n')
 
-def do_amber_preproduction(base, args):
+def do_amber_preproduction(base, args, ff):
     '''
     Do minimization with constraints, minimization without constraints, initial
     MD as temperature is raised to target temp, second MD where system is
@@ -270,7 +185,8 @@ def do_amber_preproduction(base, args):
     do_amber_min(base)
     do_amber_warmup(base, args.temperature)
     do_amber_constant_pressure(base)
-    make_amber_production_input(base, args.prod_length, args.keep_velocities)
+    make_amber_production_input(base, args.prod_length, args.keep_velocities,
+            args.coord_dump_freq)
 
 def do_amber_production(base):
     '''
@@ -285,11 +201,16 @@ def do_antechamber(fname, net_charge, ff, molbase = ''):
     Run antechamber and get correctly named versions of the following: mol2
     with bcc charges, frcmod, lib, prmtop, inpcrd
     '''
-    if not molbase: molbase = get_base(fname)
+    if not molbase: molbase = util.get_base(fname)
     ext = os.path.splitext(fname)[-1]
     mol2 = molbase + '.mol2'
-    antechamber['-i', fname, '-fi', ext, '-o', mol2, '-fo', 'mol2', '-c',
-            'bcc', '-nc', str(net_charge), '-s', '2']()
+    try:
+        antechamber['-i', fname, '-fi', ext, '-o', mol2, '-fo', 'mol2', '-c',
+                'bcc', '-nc', str(net_charge), '-s', '2']()
+    except ProcessExecutionError as e:
+        print 'Antechamber failed due to error {0}: {1}. Check {2} structure. \
+        Aborting...\n'.format(e.errno, e.strerror, fname)
+
     sed['-i',"'s/\<MOL\>/%s/g' %s" % (molbase, mol2)]()
     frcmod = molbase + '.frcmod'
     parmchk['-i', mol2, '-f', 'mol2', '-o', frcmod]()
@@ -301,7 +222,8 @@ def set_matches(fname, libs, reslist, orphaned_res):
     the liblist to include that lib and remove the units it defines from
     orphaned_res
     '''
-    units = get_units(fname)
+    #TODO: sanity check units based on atom count, names, etc
+    units = util.get_units(fname)
     matches = set(units).intersection(reslist)
     if matches:
         #avoid redefining anything, but warn the user about the
@@ -313,7 +235,7 @@ def set_matches(fname, libs, reslist, orphaned_res):
                 matches), fname)
         else:
             libs.add(fname)
-            frcmod = get_base(fname) + '.frcmod'
+            frcmod = util.get_base(fname) + '.frcmod'
             if os.path.isfile(frcmod):
                 lib.add(frcmod)
             orphaned_res -= matches
@@ -328,11 +250,11 @@ if __name__ == '__main__':
     for which you want to run a simulation. N.B. if more than one is provided \
     they will be simulated together.')
 
-    parser.add_argument('-n', '--complex_name', default='complex',
+    parser.add_argument('-n', '--out_name', default='complex',
     help='Optionally provide a filename for the created complex; only \
     meaningful if you provide more than one structure. Default is "complex."')
 
-    parser.add_argument('-p', '--prefix', nargs='+', required=False, help="Optionally specify \
+    parser.add_argument('-p', '--libs', nargs='+', required=False, help="Optionally specify \
     a prefix for nonstandard residue library files; this can include their path if they aren't \
     in the current directory. If the relevant files exist we assume you want \
     to use them, otherwise we assume this is where you want them to go and \
@@ -341,8 +263,8 @@ if __name__ == '__main__':
     parser.add_argument('-w', '--water_dist', default=12, help='Water box \
     distance; defaults to 12.')
 
-    parser.add_argument('-ff', '--force_field', default='oldff/leaprc.ff14SB',
-            help='Force field; defaults to ff14SB.')
+    parser.add_argument('-ff', '--force_field', default='leaprc.protein.ff15ipq',
+            help='Force field; defaults to ff15ipq.')
 
     parser.add_argument('-t', '--temperature', default=300, help='Simulation \
     temperature; defaults to 300K.')
@@ -363,15 +285,37 @@ if __name__ == '__main__':
     parser.add_argument('-noh', '--no_touch_hyd', dest='noh', default=False,
             action='store_true', help="Don't remove any hydrogens.")
 
-    parser.add_argument('-wat', '--water_cutoff', required=False, help="If \
-    specified, keep waters that are the provided distance from nonprotein \
-    molecules; if -1, keep all waters in the input")
-
     parser.add_argument('-parm', '--parm_only', action='store_true', default =
     False, help="Only generate the necessary ligand parameters, don't do the \
     preproduction MDs")
 
+    parser.add_argument('-ui', '--uninteractive', action='store_true',
+            default=False, help="Turn off interactive mode, which exists to let \
+            you check the output of pdb4amber for potentially serious problems \
+            with input structures.")
+
+    parser.add_argument('-df', '--coord_dump_freq', default=5000,
+    help='Frequency for dumping coordinates to traj_file. Defaults to 5000. \
+    The old script referred to this as the "timestep."')
+
+    #TODO: add extra tleap arg passing
+    #TODO: generate PBS file
+
+    #TODO: deal with different water models including with waters already in
+    #input
     args = parser.parse_args()
+
+    #Check whether AMBERHOME is set and the desired force field is available
+    amberhome = os.environ['AMBERHOME']
+    if not amberhome:
+        print "Warning: AMBERHOME is not set! This is likely to cause problems \
+        later.\n"
+    else:
+        if not os.path.isfile(amberhome + '/dat/leap/cmd/' + args.force_field):
+            print "Warning: force field not found! This is likely to cause \
+            problems later.\n"
+        else:
+            ff = amberhome + '/dat/leap/cmd/' + args.force_field
 
     #do we have nonstandard residues?
     mol_data = {}
@@ -379,21 +323,24 @@ if __name__ == '__main__':
     for structure in args.structures:
         assert os.path.isfile(structure),'%s does not exist\n' % structure
         mol_res = {}
-        mol_data[structure] = pdb.parsepdb(structure)
+        mol_data[structure] = pdb.simplepdb(structure)
         mol_res[structure] = set(mol_data[structure].resname)
         nonstandard_res[structure] = list(mol_res[structure] - standard_res)
 
     #if so, do we have the necessary library files? 
     #check for prep, lib, and off; just add the frcmod if there is one
     libs = set([])
+    #make an iterator in case we need to get library names from input arg
+    lig_iter = iter(args.libs)
     for struct,reslist in nonstandard_res.items():
         #track which units you don't have libs for
         orphaned_res = set(reslist)
         #try any user-provided locations first
-        for prefix in args.prefix:
+        for user_lib in args.libs:
             for ext in ['.lib','.off','.prep']:
-                fname = prefix + ext
+                fname = userlib + ext
                 if os.path.isfile(fname):
+                    #TODO: allow the user to redefine things with a warning
                     set_matches(fname, libs, reslist, orphaned_res)
         #if necessary, check the current directory too
         if orphaned_res:
@@ -402,7 +349,7 @@ if __name__ == '__main__':
             for lib in local_libs:
                 set_matches(fname, libs, reslist, orphaned_res)
    
-        is_protein = pdb.is_protein(mol_data[struct])
+        is_protein = mol_data[struct].is_protein()
         #for now, require that the ligand be provided separately from the protein -
         #that way we don't need to worry about differentiating between modified
         #residues (or other things we don't want to strip out of the protein) and
@@ -411,38 +358,48 @@ if __name__ == '__main__':
         "Undefined units in protein - check for modified residues, ions, or \
         cofactors\n")
 
-        if is_protein and not args.noh: mol_data[struct] = pdb.strip_hydrogen(mol_data[struct])
+        if is_protein and not args.noh: 
+            fname = util.get_base(struct) + '_amber.pdb'
+            pdb4amber['-y', '-i', struct, '-o', fname]()
+            if not args.uninteractive:
+                raw_input('Read the above messages and then press any key to \
+                continue...\n')
+            mol_data[struct] = pdb.simplepdb(fname)
 
-        #TODO? we can actually do this for the user
-        assert(len(orphaned_res)==1, "%s has multiple ligands; break them into \
+        assert(len(orphaned_res)<2, "%s has multiple ligands; break them into \
         separate files to process with antechamber\n" % struct)
 
-        molname = get_molname(args.prefix[:3].upper() if args.prefix else
-                'LIG')
         #if we're handling a ligand and don't have library files, we will need at 
         #least the pdb-formatted data and a mol2 from which we can derive gasteiger 
         #charges for antechamber; make these with babel and find the net charge
+        #TODO: fix molname/filename issues 
         if orphaned_res:
+            try:
+                molname = util.get_molname(next(lig_iter)[:3].upper())
+            except StopIteration:
+                molname = util.get_molename('LIG')
             mol_data[struct] = rename_atoms(mol_data[struct])
-            tempname = get_fname(get_base(struct) + '_temp.pdb')
-            ligname = get_fname(get_base(struct) + '_amber.pdb')
+            tempname = util.get_fname(util.get_base(struct) + '_temp.pdb')
+            ligname = util.get_fname(util.get_base(struct) + '_amber.pdb')
             mol2 = os.path.splitext(ligname)[0] + '.mol2'
             if not has_hydrogen(mol_data[struct]):
-                pdb.writepdb(mol_data[struct], tempname)
+                mol_data[struct].writepdb(tempname)
                 obabel[tempname, '-O', ligname, '-h']()
                 os.remove(tempname)
             else:
-                pdb.writepdb(mol_data[struct], ligname)
+                mol_data[struct].writepdb(ligname)
             obabel[ligname, '-O', mol2]()
-            net_charge = get_charge(mol2)
-            do_antechamber(ligname, net_charge, args.force_field, molname)
+            net_charge = util.get_charge(mol2)
+            print 'Parametrizing unit %s with antechamber.\n' % orphaned_res[0]
+            do_antechamber(ligname, net_charge, ff, molname)
             libs.add(molname + '.lib')
             libs.add(molname + '.frcmod')
 
     #ok, now we can be pretty sure we know what to do and that we are able to do it
-    complex = args.complex_name + '.pdb'
-    pdb.writepdb(mol_data.values(), complex)
-    base = os.path.splitext(complex)[-1]
-    make_amber_parm(complex, base, args.ff, args.water_dist, libs)
-    if not args.parm_only: do_amber_preproduction(complex, args)
+    complex_name = args.complex_name + '.pdb'
+    for i,mol in enumerate(mol_data.values()):
+        mol.writepdb(complex_name, i == len(mol_data.values()-1))
+    base = os.path.splitext(complex_name)[-1]
+    make_amber_parm(complex_name, base, ff, args.water_dist, libs)
+    if not args.parm_only: do_amber_preproduction(complex_name, args, ff)
     if args.run_prod_md: do_amber_production(base)
