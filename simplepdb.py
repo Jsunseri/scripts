@@ -1,5 +1,6 @@
 #!/usr/bin/python
 import pdb_util as util
+from collections import OrderedDict
 
 class simplepdb:
     '''
@@ -24,21 +25,40 @@ class simplepdb:
         self.ters = self.get_ters(pdb)
         self.natoms = len(self.mol_data['atomnum'])
 
+    def __eq__(self, other):
+        '''
+        Override default equals so we can compare objects by their fields. 
+        '''
+        if isinstance(other, self.__class__):
+            return self.__dict__ == other.__dict__
+        return NotImplemented
+
+    def __ne__(self, other):
+        '''
+        Override default notequals so we can compare objects by their fields. 
+        '''
+        if isinstance(other, self.__class__):
+            return not self.__eq__(other)
+        return NotImplemented
+
     def parse_pdb(self, pdb):
         '''
         Return a dictionary of PDB column names and their values for ATOM and
         HETATM records in the provided PDB file
         '''
+        #TODO: deal with multiple models
         parse = util.make_parser(util.pdb_fieldwidths)
         f = open(pdb, 'r')
         mol_data_list = [parse(line) for line in f if line.startswith('HETATM') or line.startswith('ATOM')]
         f.close()
         mol_data = {}
         for i,field in enumerate(util.pdb_fieldnames):
-            if (i == 1 or i == 6 or i == 8 or i == 9 or i == 10 or i == 11 or i ==
-            12 or i == 14):
-                fieldlist = [float(line[i]) for line in mol_data_list if
-                        line[i].strip()]
+            if i in util.pdb_floatfields:
+                fieldlist = [float(line[i]) if line[i].strip() else line[i] for
+                        line in mol_data_list]
+            elif i in util.pdb_intfields:
+                fieldlist = [int(line[i]) if line[i].strip() else line[i] for
+                        line in mol_data_list]
             else:
                 fieldlist = [line[i] for line in mol_data_list]
             mol_data[field] = fieldlist
@@ -55,35 +75,35 @@ class simplepdb:
         with open (pdb,'r') as f:
             for line in f:
                 if line.startswith('TER'):
-                    ter = float(line[22:26].strip())
+                    ter = line[22:26].strip()
                     if not ter:
                         ter = last_line[22:26].strip()
-                    if ter: ters.append(ter) 
+                    if ter: ters.append(float(ter)) 
                 last_line = line
         return ters
 
-    def group_by_residue(self, mol_data):
+    def group_by_residue(self):
         '''
         Rearrange atoms in a file so that atoms in the same residue are
         contiguous
         '''
-        resmap = {}
-        for old_idx in range(len(mol_data['atomnum'])):
-            resnum = mol_data['resnum'][old_idx]
+        resmap = OrderedDict()
+        for old_idx in range(self.natoms):
+            resnum = self.mol_data['resnum'][old_idx]
             if resnum not in resmap.keys():
                 resmap[resnum] = [old_idx]
             else:
                 resmap[resnum].append(old_idx)
         atnum = 1
-        new_indices = [None] * len(mol_data['atomnum'])
+        new_indices = [None] * self.natoms
         for res in resmap.keys():
             for old_idx in resmap[res]:
-                mol_data['atomnum'][old_idx] = atnum
-                new_indices.append(atnum-1)
+                self.mol_data['atomnum'][old_idx] = atnum
+                new_indices[old_idx] = atnum-1
                 atnum += 1
         new_mol_data = {}
-        for key in mol_data.keys():
-            new_mol_data[key] = [mol_data[key][i] for i in new_indices]
+        for key in self.mol_data.keys():
+            new_mol_data[key] = [self.mol_data[key][i] for i in new_indices]
 
         self.mol_data = new_mol_data
     
@@ -138,12 +158,12 @@ class simplepdb:
         residues are contiguous; if a small molecule, also uniquely names atoms
         and sets the element field
         '''
-        group_by_residue()
-        renumber_atoms()
-        renumber_residues()
-        if not is_protein():
-            rename_atoms()
-            set_element()
+        self.group_by_residue()
+        self.renumber_atoms()
+        self.renumber_residues()
+        if not self.is_protein():
+            self.rename_atoms()
+            self.set_element()
 
     def writepdb(self, fname, end=True):
         '''
@@ -152,14 +172,18 @@ class simplepdb:
         self.sanitize()
         with open(fname, 'a') as f:
             for i in range(self.natoms):
+                j = 0
                 for fieldwidth in util.pdb_fieldwidths:
                     if fieldwidth > 0:
                         fieldname = util.pdb_fieldnames[j]
                         f.write('{:>{}s}'.format(str(self.mol_data[fieldname][i]),fieldwidth))
+                        j += 1
                     else:
                         f.write('{:>{}s}'.format('',abs(fieldwidth)))
                 f.write('\n')
-                if (self.mol_data['resnum'][i] in self.ters and
+                if (i == self.natoms-1):
+                    f.write('TER\n')
+                elif (self.mol_data['resnum'][i] in self.ters and
                 self.mol_data['resnum'][i] != self.mol_data['resnum'][i+1]):
                     f.write('TER\n')
             if end==True: f.write('END\n')

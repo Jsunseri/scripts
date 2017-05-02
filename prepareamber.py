@@ -378,7 +378,7 @@ if __name__ == '__main__':
                 molname = util.get_molname(next(lig_iter)[:3].upper())
             except StopIteration:
                 molname = util.get_molename('LIG')
-            mol_data[struct] = rename_atoms(mol_data[struct])
+            mol_data[struct] = mol_data[struct].sanitize()
             tempname = util.get_fname(util.get_base(struct) + '_temp.pdb')
             ligname = util.get_fname(util.get_base(struct) + '_amber.pdb')
             mol2 = os.path.splitext(ligname)[0] + '.mol2'
@@ -386,6 +386,10 @@ if __name__ == '__main__':
                 mol_data[struct].writepdb(tempname)
                 obabel[tempname, '-O', ligname, '-h']()
                 os.remove(tempname)
+                mol_data[struct] = pdb.simplepdb(ligname)
+                mol_data[struct].sanitize()
+                os.remove(ligname)
+                mol_data[struct].writepdb(ligname)
             else:
                 mol_data[struct].writepdb(ligname)
             obabel[ligname, '-O', mol2]()

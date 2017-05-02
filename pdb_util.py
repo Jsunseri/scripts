@@ -2,17 +2,20 @@
 import os
 from itertools import izip_longest
 
-#Basic utilities used by parsepdb or prepareamber that are generally useful and
-#not limited in their functionality to the parsepdb class
+#Basic utilities used by simplepdb or prepareamber that are generally useful and
+#not limited in their functionality to the simplepdb class
 
-#The PDB file format is fixed width; the field widths and data assigned to the
-#fields are as shown.
+#The PDB file format is fixed width; the field widths, columns where each field
+#starts (numbered from 0), and data assigned to the fields are as shown.
 #Fieldwidth indices 2 6 10 16 are padding fields associated with 
 #columns not assigned to anything by the spec
 pdb_fieldwidths = (6, 5, -1, 4, 1, 3, -1, 1, 4, 1, -3, 8, 8, 8, 6, 6, -10, 2, 2)
+pdb_fieldstarts = (0, 7, 13, 17, 18, 22, 23, 27, 31, 39, 47, 55, 61, 77, 79)
 pdb_fieldnames = ('recordname', 'atomnum', 'atomname', 'altloc',
         'resname', 'chainid', 'resnum', 'rescode', 'x', 'y', 'z', 'occupancy',
         'beta', 'element', 'charge')
+pdb_floatfields = (8, 9, 10, 11, 12)
+pdb_intfields = (1, 6, 14)
 
 def accumulate(iterable):
     '''
@@ -139,7 +142,7 @@ def get_available_res(ff=''):
     AMBER; specific to your system if you pass the force field you want to use,
     otherwise a generic set is returned based on ff14SB
     '''
-    if not os.path.isfile(ff):
+    if ff and not os.path.isfile(ff):
         print 'Force field not found.\n'
         ff = ''
     if ff:
