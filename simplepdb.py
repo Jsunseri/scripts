@@ -1,5 +1,7 @@
 #!/usr/bin/python
 import pdb_util as util
+from copy import deepcopy
+import os, itertools
 from collections import OrderedDict
 
 class simplepdb:
@@ -15,15 +17,23 @@ class simplepdb:
         as a list of residues that appear immediately _before_ a break.
         natoms: Number of atoms in molecule(s).
     '''
-    def __init__(self, pdb):
+    def __init__(self, other):
         '''
-        Return a simplepdb object created by parsing the input PDB file.
-        Can't construct an object without an input file because no utilities are 
+        Return a simplepdb object created by parsing an input PDB file or
+        copying the contents of another object.
+        Can't construct an object without such input because no utilities are 
         provided that could be used to construct a reasonable molecule.
         '''
-        self.mol_data = self.parse_pdb(pdb)
-        self.ters = self.get_ters(pdb)
-        self.natoms = len(self.mol_data['atomnum'])
+        if isinstance(other, self.__class__):
+            for k,v in other.__dict__.iteritems():
+                setattr(self, k, deepcopy(v))
+        else:
+            assert os.path.isfile(other), 'simplepdb constructor requires \
+            input PDB or object of the same type.\n'
+            assert os.path.splitext(other)[-1] == '.pdb', 'Not a PDB file.\n'
+            self.mol_data = self.parse_pdb(other)
+            self.ters = self.get_ters(other)
+            self.natoms = len(self.mol_data['atomnum'])
 
     def __eq__(self, other):
         '''
@@ -31,14 +41,6 @@ class simplepdb:
         '''
         if isinstance(other, self.__class__):
             return self.__dict__ == other.__dict__
-        return NotImplemented
-
-    def __ne__(self, other):
-        '''
-        Override default notequals so we can compare objects by their fields. 
-        '''
-        if isinstance(other, self.__class__):
-            return not self.__eq__(other)
         return NotImplemented
 
     def parse_pdb(self, pdb):
@@ -78,33 +80,33 @@ class simplepdb:
                     ter = line[22:26].strip()
                     if not ter:
                         ter = last_line[22:26].strip()
-                    if ter: ters.append(float(ter)) 
-                last_line = line
+                    if ter: ters.append(int(ter)) 
+                if line.startswith('ATOM') or line.startswith('HETATM'):
+                    last_line = line
+        ter = last_line[22:26].strip()
+        if ter and not ter in ters:
+            ters.append(ter)
         return ters
 
     def group_by_residue(self):
         '''
         Rearrange atoms in a file so that atoms in the same residue are
-        contiguous
+        contiguous and orders residues monotonically by resnum
         '''
-        resmap = OrderedDict()
+        unsorted_resmap = {}
         for old_idx in range(self.natoms):
             resnum = self.mol_data['resnum'][old_idx]
-            if resnum not in resmap.keys():
-                resmap[resnum] = [old_idx]
+            if resnum not in unsorted_resmap:
+                unsorted_resmap[resnum] = [old_idx]
             else:
-                resmap[resnum].append(old_idx)
-        atnum = 1
-        new_indices = [None] * self.natoms
-        for res in resmap.keys():
-            for old_idx in resmap[res]:
-                self.mol_data['atomnum'][old_idx] = atnum
-                new_indices[old_idx] = atnum-1
-                atnum += 1
+                unsorted_resmap[resnum].append(old_idx)
+        resmap = OrderedDict(sorted(unsorted_resmap.items(), key=lambda t: t[0]))
+        new_indices = list(itertools.chain.from_iterable(resmap.values()))
         new_mol_data = {}
-        for key in self.mol_data.keys():
+        for key in self.mol_data:
             new_mol_data[key] = [self.mol_data[key][i] for i in new_indices]
 
+        self.renumber_atoms()
         self.mol_data = new_mol_data
     
     def renumber_atoms(self, start_val=1):
@@ -116,16 +118,21 @@ class simplepdb:
     
     def renumber_residues(self, start_val=1):
         '''
-        Renumber residues so they start at 1
+        Renumber residues so they start at 1 in "first seen" order, desirable
+        when there is a ligand at the end of data with an out-of-order resnum
         '''
         reslist = []
         for i,resnum in enumerate(self.mol_data['resnum']):
             if resnum not in reslist:
-                newnum = len(reslist)
+                newidx = len(reslist)
                 reslist.append(resnum)
             else:
-                newnum = reslist.index(resnum)
-            self.mol_data['resnum'][i] = newnum + start_val
+                newidx = reslist.index(resnum)
+            newnum = newidx + start_val
+            self.mol_data['resnum'][i] = newnum
+            if resnum in self.ters:
+                ter_idx = self.ters.index(resnum)
+                self.ters[ter_idx] = newnum 
     
     def rename_atoms(self):
         '''
@@ -150,7 +157,10 @@ class simplepdb:
         Set atom element based on atom name
         '''
         for i,name in enumerate(self.mol_data['atomname']):
-            self.mol_data['element'][i] = ''.join([i.title() for i in name if i.isalpha()])
+            element = ''.join([char for char in name if char.isalpha()])
+            element = element.title()
+            self.mol_data['element'][i] = '{:>{}s}'.format(element,
+                    util.pdb_fieldwidths[-2])
 
     def sanitize(self):
         '''
@@ -165,34 +175,11 @@ class simplepdb:
             self.rename_atoms()
             self.set_element()
 
-    def writepdb(self, fname, end=True):
-        '''
-        Write molecule data to a file
-        '''
-        self.sanitize()
-        with open(fname, 'a') as f:
-            for i in range(self.natoms):
-                j = 0
-                for fieldwidth in util.pdb_fieldwidths:
-                    if fieldwidth > 0:
-                        fieldname = util.pdb_fieldnames[j]
-                        f.write('{:>{}s}'.format(str(self.mol_data[fieldname][i]),fieldwidth))
-                        j += 1
-                    else:
-                        f.write('{:>{}s}'.format('',abs(fieldwidth)))
-                f.write('\n')
-                if (i == self.natoms-1):
-                    f.write('TER\n')
-                elif (self.mol_data['resnum'][i] in self.ters and
-                self.mol_data['resnum'][i] != self.mol_data['resnum'][i+1]):
-                    f.write('TER\n')
-            if end==True: f.write('END\n')
-
     def has_hydrogen(self):
         '''
         Returns true if hydrogens are present
         '''
-        return 'H' in self.mol_data['element'].strip()
+        return 'H' in [elem.strip() for elem in self.mol_data['element']]
     
     def strip_hydrogen(self):
         '''
@@ -213,3 +200,30 @@ class simplepdb:
         aa = util.get_available_res(ff).intersection(self.mol_data['resname'])
         return len(aa) > 0
     
+    def writepdb(self, fname, end=True, start_atom=1, start_res=1):
+        '''
+        Write molecule data to a file; takes filename, whether an END record
+        should be written, and the indices from which the atoms and residues
+        should be numbered
+        '''
+        self.renumber_atoms(start_atom)
+        self.renumber_residues(start_res)
+        with open(fname, 'a') as f:
+            for i in range(self.natoms):
+                j = 0
+                for fieldwidth in util.pdb_fieldwidths:
+                    if fieldwidth > 0:
+                        fieldname = util.pdb_fieldnames[j]
+                        f.write('{:>{}s}'.format(str(self.mol_data[fieldname][i]),fieldwidth))
+                        j += 1
+                    else:
+                        f.write('{:>{}s}'.format('',abs(fieldwidth)))
+                f.write('\n')
+                if (i == self.natoms-1):
+                    f.write('TER\n')
+                elif (self.mol_data['resnum'][i] in self.ters and
+                self.mol_data['resnum'][i] != self.mol_data['resnum'][i+1]):
+                    f.write('TER\n')
+            if end==True: f.write('END\n')
+        return (self.mol_data['atomnum'][-1]+1, self.mol_data['resnum'][-1]+1)
+

@@ -398,11 +398,14 @@ if __name__ == '__main__':
             do_antechamber(ligname, net_charge, ff, molname)
             libs.add(molname + '.lib')
             libs.add(molname + '.frcmod')
-
+    #TODO: reorder mol_data so that protein structures come first (and are
+    #therefore written to file first)
     #ok, now we can be pretty sure we know what to do and that we are able to do it
     complex_name = args.complex_name + '.pdb'
+    start_atom, start_res = 1,1
     for i,mol in enumerate(mol_data.values()):
-        mol.writepdb(complex_name, i == len(mol_data.values()-1))
+        start_atom, start_res = mol.writepdb(complex_name, i ==
+                len(mol_data.values()-1), start_atom, start_res)
     base = os.path.splitext(complex_name)[-1]
     make_amber_parm(complex_name, base, ff, args.water_dist, libs)
     if not args.parm_only: do_amber_preproduction(complex_name, args, ff)

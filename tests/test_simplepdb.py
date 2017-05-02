@@ -124,10 +124,43 @@ class ActionTests(unittest.TestCase):
     '''
     def setUp(self):
         self.receptor = pdb.simplepdb('receptor.pdb')
-        self.ligand = pdb.simplepdb('ZMA.pdb')
+        self.ligand_h = pdb.simplepdb('LIG_h.pdb')
+        self.ligand_noh = pdb.simplepdb('LIG_noh.pdb')
+        self.complex = pdb.simplepdb('LIGreceptor.pdb')
 
-    def test_get_ters(self):
+    def test_group_by_residue(self):
         self.failUnless(1)
+
+    def test_renumber_atoms(self):
+        self.failUnless(1)
+
+    def test_renumber_residues(self):
+        self.failUnless(1)
+
+    def test_rename_atoms(self):
+        self.failUnless(1)
+
+    def test_set_element(self):
+        ligand_h_copy = pdb.simplepdb(self.ligand_h)
+        ligand_noh_copy = pdb.simplepdb(self.ligand_noh)
+        ligand_h_copy.strip_hydrogen()
+        ligand_noh_copy.set_element()
+        self.assertEqual(ligand_h_copy.mol_data['element'],
+                ligand_noh_copy.mol_data['element'])
+
+    def test_is_protein(self):
+        self.assertTrue(self.receptor.is_protein())
+        self.assertTrue(self.complex.is_protein())
+        self.assertFalse(self.ligand_h.is_protein())
+
+    def test_has_hydrogen(self):
+        self.assertTrue(self.ligand_h.has_hydrogen())
+        self.assertFalse(self.ligand_noh.has_hydrogen())
+
+    def test_strip_hydrogen(self):
+        ligand_copy = pdb.simplepdb(self.ligand_h)
+        ligand_copy.strip_hydrogen()
+        self.assertFalse(ligand_copy.has_hydrogen())
 
 if __name__ == '__main__':
     unittest.main()
