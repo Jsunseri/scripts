@@ -103,7 +103,7 @@ def get_units(lib):
                 elif line.startswith('!'):
                     break
                 elif copy:
-                    units.append(line.strip('"'))
+                    units.append(line.strip().strip('"'))
         else:
             i = 0
             for line in f:
@@ -133,7 +133,7 @@ def get_charge(mol2):
                         continue
             elif (copy == True):
                 charge += float(line.split()[-1])
-    return charge 
+    return int(round(charge))
 
 
 def get_available_res(ff=''):
@@ -146,6 +146,7 @@ def get_available_res(ff=''):
         print 'Force field not found.\n'
         ff = ''
     if ff:
+        units = []
         libs = get_libs(ff)
         for lib in libs:
             units += get_units(lib)

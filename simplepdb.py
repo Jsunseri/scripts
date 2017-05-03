@@ -59,8 +59,15 @@ class simplepdb:
                 fieldlist = [float(line[i]) if line[i].strip() else line[i] for
                         line in mol_data_list]
             elif i in util.pdb_intfields:
-                fieldlist = [int(line[i]) if line[i].strip() else line[i] for
-                        line in mol_data_list]
+                if field == 'charge':
+                    fieldlist = [line[i] for line in mol_data_list]
+                    fieldlist = [int(line.strip('+')) if
+                    len(line.split('+')) > 1 else -int(line.strip('-')) if
+                    len(line.split('-')) > 1 else line for line in
+                    fieldlist]
+                else:
+                    fieldlist = [int(line[i]) if line[i].strip() else line[i] for
+                            line in mol_data_list]
             else:
                 fieldlist = [line[i] for line in mol_data_list]
             mol_data[field] = fieldlist

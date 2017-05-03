@@ -4,6 +4,7 @@ import argparse
 import simplepdb as pdb
 import pdb_util as util
 import os, shutil, glob
+from plumbum import FG
 from plumbum.cmd import sed, grep, cut, uniq, wc
 try:
     from plumbum.cmd import obabel
@@ -27,7 +28,7 @@ def make_amber_parm(fname, base, ff, wat_dist = 0, libs=[]):
     Generate AMBER parameters with tleap
     '''
     inpcrd = base + '.inpcrd'
-    prmtop = base = '.prmtop'
+    prmtop = base + '.prmtop'
     with open(base + '.tleap', 'w') as leap_input:
         leap_input.write('source ' + ff + '\n' + 
                 'source leaprc.gaff\n' + 
@@ -35,19 +36,20 @@ def make_amber_parm(fname, base, ff, wat_dist = 0, libs=[]):
         for lib in libs:
             leap_input.write(get_cmd(lib) + ' ' + lib + '\n')
         if wat_dist:
-            leap_input.write('loadamberparams frcmod.ionsjc_tip3p\n' + 
-                    'solvateoct prot TIP3PBOX ' + wat_dist + '\n' + 
-                    'addions prot Na+ 0\n' + 
-                    'addions prot Cl- 0\n')
+            leap_input.write('source leaprc.water.tip3p\n' + 
+                    'solvateoct '+base+' TIP3PBOX ' + str(wat_dist) + '\n' + 
+                    'addions '+base+' Na+ 0\n' + 
+                    'addions '+base+' Cl- 0\n')
         leap_input.write('saveamberparm ' + base + ' ' + prmtop + ' ' + inpcrd + '\n')
         leap_input.write('quit\n')
-    leap['-f', base + '.tleap']()
+    tleap['-f', base + '.tleap'] & FG
 
 def do_amber_min_constraint(base):
     '''
     Do AMBER minimization with protein constraint
     '''
     numres = (grep['ATOM', base + '.pdb'] | cut['-b', '23-26'] | uniq | wc)()
+    numres = numres.split()[0].strip()
     with open(base + '_min1.in', 'w') as min_input:
         min_input.write(base + ': initial minimization solvent + ions\n' + 
             ' &cntrl\n' + 
@@ -70,9 +72,11 @@ def do_amber_min_constraint(base):
             'RES 1 ' + str(numres) + '\n' +
             'END\n' +
             'END\n')
-    pmemd_cuda['-O', '-i', base+'_min1.in', '-o', base+'_min1.out', '-p',
+    command = pmemd_cuda['-O', '-i', base+'_min1.in', '-o', base+'_min1.out', '-p',
             base+'.prmtop', '-c', base+'.inpcrd', '-r', base+'_min1.rst',
-            '-ref', base+'.inpcrd']()
+            '-ref', base+'.inpcrd'] 
+    print command
+    command & FG
 
 def do_amber_min(base):
     '''
@@ -88,8 +92,10 @@ def do_amber_min(base):
             '  ntr    = 0,\n' + 
             '  cut    = 10.0\n' + 
             ' /\n')
-    pmemd_cuda['-O', '-i', base+'_min2.in', '-o', base+'_min2.out', '-p',
-            base+'.prmtop', '-c', base+'_min1.rst', '-r', base+'_min2.rst']()
+    command = pmemd_cuda['-O', '-i', base+'_min2.in', '-o', base+'_min2.out', '-p',
+            base+'.prmtop', '-c', base+'_min1.rst', '-r', base+'_min2.rst'] 
+    print command
+    command & FG
 
 def do_amber_warmup(base, temperature):
     '''
@@ -107,7 +113,7 @@ def do_amber_warmup(base, temperature):
               '  ntc    = 2,\n' + 
               '  ntf    = 2,\n' + 
               '  tempi  = 0.0,\n' + 
-              '  temp0  = $temp,\n' + 
+              '  temp0  = ' + str(temperature) + '\n' + 
               '  ntt    = 3,\n' + 
               '  gamma_ln = 1.0,\n' + 
               '  nstlim = 50000, dt = 0.002, ntxo = 2,\n' + 
@@ -123,14 +129,16 @@ def do_amber_warmup(base, temperature):
             '* * E *\n' + 
             '* * M *\n' + 
             'SEARCH\n' + 
-            'RES 1 ' + numres + '\n' + 
+            'RES 1 ' + str(numres) + '\n' + 
             'END\n' + 
             'END\n')
-    pmemd_cuda['-O', '-i', base+'_md1.in', '-o', base+'_md1.out', '-p',
+    command = pmemd_cuda['-O', '-i', base+'_md1.in', '-o', base+'_md1.out', '-p',
             base+'.prmtop', '-c', base+'_min2.rst', '-r', base+'_md1.rst',
-            '-ref', base+'_min2.rst', '-x', base+'_md1.nc']()
+            '-ref', base+'_min2.rst', '-x', base+'_md1.nc'] 
+    print command
+    command & FG
 
-def do_amber_constant_pressure(base):
+def do_amber_constant_pressure(base, temp):
     '''
     Do AMBER MD to equilibrate system at constant pressure
     '''
@@ -142,15 +150,17 @@ def do_amber_constant_pressure(base):
              '  taup = 2.0,\n' + 
              '  cut = 10.0, ntr = 0,\n' + 
              '  ntc = 2, ntf = 2,\n' + 
-             '  tempi = $temp, temp0 = $temp,\n' + 
+             '  tempi = '+str(temp)+', temp0 = '+str(temp)+',\n' + 
              '  ntt = 3, gamma_ln = 1.0,\n' + 
              '  nstlim = 50000, dt = 0.002, ntxo = 2,\n' + 
              '  ntpr = 5000, ntwx = 5000, ntwr = 500000,\n' + 
              '  ioutfm = 1\n' + 
              ' /\n')
-    pmemd_cuda['-O', '-i', base+'_md2.in', '-o', base+'_md2.out', '-p',
+    command = pmemd_cuda['-O', '-i', base+'_md2.in', '-o', base+'_md2.out', '-p',
             base+'.prmtop', '-c', base+'_md1.rst', '-r', base+'_md2.rst',
-            '-x', base+'_md2.nc']()
+            '-x', base+'_md2.nc'] 
+    print command
+    command & FG
 
 def make_amber_production_input(base, length, keep_velocities, coord_dump_freq):
     '''
@@ -160,17 +170,17 @@ def make_amber_production_input(base, length, keep_velocities, coord_dump_freq):
     irest = int(keep_velocities)
     ntx = 7 if keep_velocities else 1
     with open(base + '_md3.in','w') as md_input:
-        md_input.write(base + ': ' + length + 'ns MD\n' + 
+        md_input.write(base + ': ' + str(length) + 'ns MD\n' + 
             ' &cntrl\n' + 
-            '  imin = 0, irest = '+irest+', ntx = '+ntx+',\n' + 
+            '  imin = 0, irest = '+str(irest)+', ntx = '+str(ntx)+',\n' + 
             '  ntb = 2, pres0 = 1.0, ntp = 1,\n' + 
             '  taup = 2.0,\n' + 
             '  cut = 10.0, ntr = 0,\n' + 
             '  ntc = 2, ntf = 2,\n' + 
             '  tempi = $temp, temp0 = $temp,\n' + 
             '  ntt = 3, gamma_ln = 1.0,\n' + 
-            '  nstlim = '+nstlim+', dt = 0.002, ntxo = 2,\n' + 
-            '  ntpr = 5000, ntwx = '+coord_dump_freq+', ntwr = 500000,\n' + 
+            '  nstlim = '+str(nstlim)+', dt = 0.002, ntxo = 2,\n' + 
+            '  ntpr = 5000, ntwx = '+str(coord_dump_freq)+', ntwr = 500000,\n' + 
             '  ioutfm = 1\n' + 
              '/\n')
 
@@ -184,7 +194,7 @@ def do_amber_preproduction(base, args, ff):
     do_amber_min_constraint(base)
     do_amber_min(base)
     do_amber_warmup(base, args.temperature)
-    do_amber_constant_pressure(base)
+    do_amber_constant_pressure(base, args.temperature)
     make_amber_production_input(base, args.prod_length, args.keep_velocities,
             args.coord_dump_freq)
 
@@ -192,9 +202,11 @@ def do_amber_production(base):
     '''
     Does AMBER production run MD locally
     '''
-    pmemd_cuda['-O', '-i', base+'_md3.in', '-o', base+'_md3.out', '-p',
+    command = pmemd_cuda['-O', '-i', base+'_md3.in', '-o', base+'_md3.out', '-p',
             base+'.prmtop', '-c', base+'_md2.rst', '-r', base+'_md3.rst',
-            '-x', base+'_md3.nc']()
+            '-x', base+'_md3.nc'] 
+    print command
+    command & FG
 
 def do_antechamber(fname, net_charge, ff, molbase = ''):
     '''
@@ -252,7 +264,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-n', '--out_name', default='complex',
     help='Optionally provide a filename for the created complex; only \
-    meaningful if you provide more than one structure. Default is "complex."')
+    used if you provide more than one structure. Default is "complex."')
 
     parser.add_argument('-p', '--libs', nargs='+', required=False, help="Optionally specify \
     a prefix for nonstandard residue library files; this can include their path if they aren't \
@@ -320,17 +332,21 @@ if __name__ == '__main__':
     #do we have nonstandard residues?
     mol_data = {}
     nonstandard_res = {}
+    standard_res = util.get_available_res(ff)
+    #TODO: support additional file formats
     for structure in args.structures:
         assert os.path.isfile(structure),'%s does not exist\n' % structure
         mol_res = {}
         mol_data[structure] = pdb.simplepdb(structure)
-        mol_res[structure] = set(mol_data[structure].resname)
+        mol_res[structure] = set(mol_data[structure].mol_data['resname'])
         nonstandard_res[structure] = list(mol_res[structure] - standard_res)
 
     #if so, do we have the necessary library files? 
     #check for prep, lib, and off; just add the frcmod if there is one
     libs = set([])
     #make an iterator in case we need to get library names from input arg
+    if not args.libs:
+        args.libs = []
     lig_iter = iter(args.libs)
     for struct,reslist in nonstandard_res.items():
         #track which units you don't have libs for
@@ -354,20 +370,21 @@ if __name__ == '__main__':
         #that way we don't need to worry about differentiating between modified
         #residues (or other things we don't want to strip out of the protein) and
         #small molecules we can parametrize with antechamber
-        assert(not (is_protein and orphaned_res),
-        "Undefined units in protein - check for modified residues, ions, or \
-        cofactors\n")
+        assert not (is_protein and orphaned_res), \
+        "Undefined units %s in protein - check for modified residues, ions, or \
+cofactors\n" % ' '.join(orphaned_res)
 
         if is_protein and not args.noh: 
             fname = util.get_base(struct) + '_amber.pdb'
-            pdb4amber['-y', '-i', struct, '-o', fname]()
+            pdb4amber['-y', '-i', struct, '-o', fname] & FG
+            idx = args.structures.index(struct)
+            args.structures[idx] = fname
             if not args.uninteractive:
-                raw_input('Read the above messages and then press any key to \
-                continue...\n')
+                raw_input('Read the above messages and then press any key to continue...\n')
             mol_data[struct] = pdb.simplepdb(fname)
 
-        assert(len(orphaned_res)<2, "%s has multiple ligands; break them into \
-        separate files to process with antechamber\n" % struct)
+        assert len(orphaned_res)<2, "%s has multiple ligands; break them into \
+        separate files to process with antechamber\n" % struct
 
         #if we're handling a ligand and don't have library files, we will need at 
         #least the pdb-formatted data and a mol2 from which we can derive gasteiger 
@@ -398,15 +415,21 @@ if __name__ == '__main__':
             do_antechamber(ligname, net_charge, ff, molname)
             libs.add(molname + '.lib')
             libs.add(molname + '.frcmod')
+
     #TODO: reorder mol_data so that protein structures come first (and are
     #therefore written to file first)
     #ok, now we can be pretty sure we know what to do and that we are able to do it
-    complex_name = args.complex_name + '.pdb'
-    start_atom, start_res = 1,1
-    for i,mol in enumerate(mol_data.values()):
-        start_atom, start_res = mol.writepdb(complex_name, i ==
-                len(mol_data.values()-1), start_atom, start_res)
-    base = os.path.splitext(complex_name)[-1]
+    if len(args.structures) > 1:
+        complex_name = args.complex_name + '.pdb'
+        start_atom, start_res = 1,1
+        for i,mol in enumerate(mol_data.values()):
+            start_atom, start_res = mol.writepdb(complex_name, i ==
+                    len(mol_data.values()-1), start_atom, start_res)
+        base = util.get_base(complex_name)
+    else:
+        complex_name = args.structures[0]
+        base = util.get_base(complex_name)
+        base = base.split('_')[0]
     make_amber_parm(complex_name, base, ff, args.water_dist, libs)
-    if not args.parm_only: do_amber_preproduction(complex_name, args, ff)
+    if not args.parm_only: do_amber_preproduction(base, args, ff)
     if args.run_prod_md: do_amber_production(base)
