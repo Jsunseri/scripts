@@ -49,14 +49,20 @@ def get_fname(fname):
     directory
     '''
     i = 0
-    base,ext = fname.split('_')
-    if ext: ext = '_' + ext
+    name = fname.split('_')
+    if len(name) > 1:
+        base = '_'.join(name[:-1])
+        ext = '_' + name[-1]
+    else:
+        base,ext = os.path.splitext(fname)
     while 1:
         if i == 0:
             fname = base + ext
         else:
             fname = base + str(i) + ext
         if os.path.isfile(fname):
+            if i == 0:
+                base = base + '_'
             i += 1
         else:
             return fname
