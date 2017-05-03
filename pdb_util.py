@@ -15,7 +15,7 @@ pdb_fieldnames = ('recordname', 'atomnum', 'atomname', 'altloc',
         'resname', 'chainid', 'resnum', 'rescode', 'x', 'y', 'z', 'occupancy',
         'beta', 'element', 'charge')
 pdb_floatfields = (8, 9, 10, 11, 12)
-pdb_intfields = (1, 6, 14)
+pdb_intfields = (1, 6)
 
 def accumulate(iterable):
     '''

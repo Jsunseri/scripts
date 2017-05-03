@@ -421,6 +421,8 @@ cofactors\n" % ' '.join(orphaned_res)
             resname = list(orphaned_res)[0]
             os.system("sed -i 's/\<%s\>/%s/g' %s" % (resname, molname, ligname))
             print 'Parametrizing unit %s with antechamber.\n' % ' '.join(orphaned_res)
+            mol_data[struct].mol_data['resname'] = [molname for i in
+                    range(mol_data[struct].natoms)]
             do_antechamber(ligname, net_charge, ff, molname)
             libs.add(molname + '.lib')
             libs.add(molname + '.frcmod')
@@ -431,17 +433,16 @@ cofactors\n" % ' '.join(orphaned_res)
     #therefore written to file first)
     #ok, now we can be pretty sure we know what to do and that we are able to do it
     if len(args.structures) > 1:
-        complex_name = args.complex_name + '.pdb'
+        complex_name = args.out_name + '.pdb'
         start_atom, start_res = 1,1
         for i,mol in enumerate(mol_data.values()):
             start_atom, start_res = mol.writepdb(complex_name, i ==
-                    len(mol_data.values()-1), start_atom, start_res)
+                    len(mol_data.values())-1, start_atom, start_res)
         base = util.get_base(complex_name)
     else:
         complex_name = args.structures[0]
         base = util.get_base(complex_name)
         base = base.split('_')[0]
-    print complex_name
     make_amber_parm(complex_name, base, ff, args.water_dist, libs)
     if not args.parm_only: do_amber_preproduction(base, args, ff)
     if args.run_prod_md: do_amber_production(base)
