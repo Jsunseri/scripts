@@ -37,7 +37,7 @@ class simplepdb:
 
     def __eq__(self, other):
         '''
-        Override default equals so we can compare objects by their fields. 
+        Check equality of simplepdb objects based on the values of their fields
         '''
         if isinstance(other, self.__class__):
             return self.__dict__ == other.__dict__
@@ -77,13 +77,13 @@ class simplepdb:
         with open (pdb,'r') as f:
             for line in f:
                 if line.startswith('TER'):
-                    ter = line[22:26].strip()
+                    ter = line[23:27].strip()
                     if not ter:
-                        ter = last_line[22:26].strip()
+                        ter = last_line[23:27].strip()
                     if ter: ters.append(int(ter)) 
                 if line.startswith('ATOM') or line.startswith('HETATM'):
                     last_line = line
-        ter = last_line[22:26].strip()
+        ter = last_line[23:27].strip()
         if ter and not ter in ters:
             ters.append(ter)
         return ters
@@ -123,11 +123,12 @@ class simplepdb:
         '''
         reslist = []
         for i,resnum in enumerate(self.mol_data['resnum']):
-            if resnum not in reslist:
+            name = self.mol_data['resname'][i] + str(resnum) 
+            if name not in reslist:
                 newidx = len(reslist)
-                reslist.append(resnum)
+                reslist.append(name)
             else:
-                newidx = reslist.index(resnum)
+                newidx = reslist.index(name)
             newnum = newidx + start_val
             self.mol_data['resnum'][i] = newnum
             if resnum in self.ters:
@@ -139,9 +140,8 @@ class simplepdb:
         Generate unique atom names
         '''
         for i,name in enumerate(self.mol_data['atomname']):
-        	self.mol_data['atomname'][i] = ''.join([i.upper() for i in
-                    self.mol_data['atomname'][i]
-                if i.isalpha()])
+        	self.mol_data['atomname'][i] = ''.join([char.upper() for char in
+                    self.mol_data['atomname'][i] if char.isalpha()])
         	
         occurrences = {}
         for i,atom in enumerate(self.mol_data['atomname']):
@@ -151,6 +151,9 @@ class simplepdb:
         	else:
         		occurrences[atom][1] += 1
         		self.mol_data['atomname'][i] += str(occurrences[atom][1])
+                self.mol_data['atomname'][i] = \
+                '{:>{}s}'.format(self.mol_data['atomname'][i],
+                        util.pdb_fieldwidths[3])
     
     def set_element(self):
         '''

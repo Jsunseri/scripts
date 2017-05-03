@@ -126,19 +126,33 @@ class ActionTests(unittest.TestCase):
         self.receptor = pdb.simplepdb('receptor.pdb')
         self.ligand_h = pdb.simplepdb('LIG_h.pdb')
         self.ligand_noh = pdb.simplepdb('LIG_noh.pdb')
-        self.complex = pdb.simplepdb('LIGreceptor.pdb')
+        self.complex = pdb.simplepdb('LIGreceptor_fixed.pdb')
 
     def test_group_by_residue(self):
-        self.failUnless(1)
+        badres = pdb.simplepdb('LIGreceptor.pdb')
+        badres.group_by_residue()
+        self.assertEqual(badres.mol_data['resname'],
+        self.complex.mol_data['resname'])
 
     def test_renumber_atoms(self):
-        self.failUnless(1)
+        badnumber = pdb.simplepdb('LIGreceptor_number.pdb')
+        badnumber.renumber_atoms()
+        self.assertEqual(badnumber.mol_data['atomnum'],
+        self.complex.mol_data['atomnum'])
 
     def test_renumber_residues(self):
-        self.failUnless(1)
+        badnumber = pdb.simplepdb('LIGreceptor_number.pdb')
+        badnumber.renumber_residues()
+        self.assertEqual(badnumber.mol_data['resnum'],
+        self.complex.mol_data['resnum'])
 
     def test_rename_atoms(self):
-        self.failUnless(1)
+        ligand_h_copy = pdb.simplepdb(self.ligand_h)
+        ligand_noh_copy = pdb.simplepdb(self.ligand_noh)
+        ligand_h_copy.strip_hydrogen()
+        ligand_noh_copy.rename_atoms()
+        self.assertEqual(ligand_h_copy.mol_data['atomname'],
+                ligand_noh_copy.mol_data['atomname'])
 
     def test_set_element(self):
         ligand_h_copy = pdb.simplepdb(self.ligand_h)
