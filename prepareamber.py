@@ -3,7 +3,7 @@
 import argparse
 import simplepdb as pdb
 import pdb_util as util
-import os, shutil, glob
+import os, shutil, glob, sys
 from plumbum import FG
 from plumbum.cmd import sed, grep, cut, uniq, wc
 try:
@@ -23,7 +23,7 @@ def get_cmd(input_str):
     return cmd_dict[ext]
 
 
-def make_amber_parm(fname, base, ff, wat_dist = 0, libs=[]):
+def make_amber_parm(fname, base, ff, wat_dist = 0, libs=[], frcmod = ''):
     '''
     Generate AMBER parameters with tleap
     '''
@@ -31,15 +31,18 @@ def make_amber_parm(fname, base, ff, wat_dist = 0, libs=[]):
     prmtop = base + '.prmtop'
     with open(base + '.tleap', 'w') as leap_input:
         leap_input.write('source ' + ff + '\n' + 
-                'source leaprc.gaff\n' + 
-                base + '=' + get_cmd(fname) + ' ' + fname + '\n')
+                'source leaprc.gaff\n')
         for lib in libs:
             leap_input.write(get_cmd(lib) + ' ' + lib + '\n')
+        leap_input.write(base + '=' + get_cmd(fname) + ' ' + fname + '\n')
         if wat_dist:
             leap_input.write('source leaprc.water.tip3p\n' + 
                     'solvateoct '+base+' TIP3PBOX ' + str(wat_dist) + '\n' + 
                     'addions '+base+' Na+ 0\n' + 
                     'addions '+base+' Cl- 0\n')
+        elif frcmod:
+            leap_input.write('loadamberparams '+frcmod+'\n' + 
+                    'saveoff '+base+' '+base+'.lib\n')
         leap_input.write('saveamberparm ' + base + ' ' + prmtop + ' ' + inpcrd + '\n')
         leap_input.write('quit\n')
     tleap['-f', base + '.tleap'] & FG
@@ -215,18 +218,22 @@ def do_antechamber(fname, net_charge, ff, molbase = ''):
     '''
     if not molbase: molbase = util.get_base(fname)
     ext = os.path.splitext(fname)[-1]
+    ext = ext.lstrip('.')
     mol2 = molbase + '.mol2'
     try:
-        antechamber['-i', fname, '-fi', ext, '-o', mol2, '-fo', 'mol2', '-c',
-                'bcc', '-nc', str(net_charge), '-s', '2']()
-    except ProcessExecutionError as e:
+        command = antechamber['-i', fname, '-fi', ext, '-o', mol2, '-fo', 'mol2', '-c',
+                'bcc', '-nc', str(net_charge), '-s', '2']
+        print command
+        command & FG
+    except Exception as e:
         print 'Antechamber failed due to error {0}: {1}. Check {2} structure. \
-        Aborting...\n'.format(e.errno, e.strerror, fname)
+Aborting...\n'.format(e.errno, e.strerror, fname)
+        sys.exit()
 
-    sed['-i',"'s/\<MOL\>/%s/g' %s" % (molbase, mol2)]()
+    os.system("sed -i 's/\<MOL\>/%s/g' %s" % (molbase, mol2))
     frcmod = molbase + '.frcmod'
     parmchk['-i', mol2, '-f', 'mol2', '-o', frcmod]()
-    make_amber_parm(mol2, molbase, ff)
+    make_amber_parm(mol2, molbase, ff, frcmod=frcmod)
 
 def set_matches(fname, libs, reslist, orphaned_res):
     '''
@@ -363,7 +370,7 @@ if __name__ == '__main__':
             local_libs = [name for name in glob.glob('*.lib') +
                     glob.glob('*.off') + glob.glob('*.prep')]
             for lib in local_libs:
-                set_matches(fname, libs, reslist, orphaned_res)
+                set_matches(lib, libs, reslist, orphaned_res)
    
         is_protein = mol_data[struct].is_protein()
         #for now, require that the ligand be provided separately from the protein -
@@ -394,12 +401,12 @@ cofactors\n" % ' '.join(orphaned_res)
             try:
                 molname = util.get_molname(next(lig_iter)[:3].upper())
             except StopIteration:
-                molname = util.get_molename('LIG')
-            mol_data[struct] = mol_data[struct].sanitize()
+                molname = util.get_molname('LIG')
+            mol_data[struct].sanitize()
             tempname = util.get_fname(util.get_base(struct) + '_temp.pdb')
             ligname = util.get_fname(util.get_base(struct) + '_amber.pdb')
             mol2 = os.path.splitext(ligname)[0] + '.mol2'
-            if not has_hydrogen(mol_data[struct]):
+            if not mol_data[struct].has_hydrogen():
                 mol_data[struct].writepdb(tempname)
                 obabel[tempname, '-O', ligname, '-h']()
                 os.remove(tempname)
@@ -411,10 +418,14 @@ cofactors\n" % ' '.join(orphaned_res)
                 mol_data[struct].writepdb(ligname)
             obabel[ligname, '-O', mol2]()
             net_charge = util.get_charge(mol2)
-            print 'Parametrizing unit %s with antechamber.\n' % orphaned_res[0]
+            resname = list(orphaned_res)[0]
+            os.system("sed -i 's/\<%s\>/%s/g' %s" % (resname, molname, ligname))
+            print 'Parametrizing unit %s with antechamber.\n' % ' '.join(orphaned_res)
             do_antechamber(ligname, net_charge, ff, molname)
             libs.add(molname + '.lib')
             libs.add(molname + '.frcmod')
+            idx = args.structures.index(struct)
+            args.structures[idx] = ligname
 
     #TODO: reorder mol_data so that protein structures come first (and are
     #therefore written to file first)
@@ -430,6 +441,7 @@ cofactors\n" % ' '.join(orphaned_res)
         complex_name = args.structures[0]
         base = util.get_base(complex_name)
         base = base.split('_')[0]
+    print complex_name
     make_amber_parm(complex_name, base, ff, args.water_dist, libs)
     if not args.parm_only: do_amber_preproduction(base, args, ff)
     if args.run_prod_md: do_amber_production(base)
