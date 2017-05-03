@@ -235,24 +235,43 @@ Aborting...\n'.format(e.errno, e.strerror, fname)
     parmchk['-i', mol2, '-f', 'mol2', '-o', frcmod]()
     make_amber_parm(mol2, molbase, ff, frcmod=frcmod)
 
-def set_matches(fname, libs, reslist, orphaned_res):
+def set_matches(fname, libs, reslist, orphaned_res, mol, force=False):
     '''
     Find whether any units defined by a lib are required; if they are, update
     the liblist to include that lib and remove the units it defines from
     orphaned_res
     '''
-    #TODO: sanity check units based on atom count, names, etc
     units = util.get_units(fname)
     matches = set(units).intersection(reslist)
+    #TODO: make this work for prep and check bonds as well as atoms.
+    #require that atom names and connectivity match before adding lib
+    libatoms = []
+    ext = os.path.splitext(fname)[-1][0:4]
+    if ext != 'prep':
+        with open(fname,'r') as f:
+            atomcopy = False
+            for line in f:
+                if line.startswith('!'):
+                    if line.split().split('.')[-1] == 'atoms':
+                        atomcopy = True
+                    else:
+                        atomcopy = False
+                elif atomcopy:
+                    libatoms.append(line.strip().strip('"'))
+    if set(libatoms) != set(mol.mol_data['atomname']) or ext == 'prep' and not force:
+        matches = set([])
     if matches:
-        #avoid redefining anything, but warn the user about the
-        #duplication...this doesn't avoid _all_ redefinitions,
-        #though, FIXME?
-        if not matches.intersection(orphaned_res):
+        #redefine a unit iff found in a user-provided lib, but warn the user about the
+        #duplication. don't redefine if found locally. 
+        if not matches.intersection(orphaned_res) and not force:
             print 'Unit %s found in %s defined previously, \
             skipping to avoid redefinition\n' % (' '.join(match for match in
                 matches), fname)
         else:
+            if not matches.intersection(orphaned_res):
+                print 'Unit %s found in %s defined previously, \
+                adding user-provided lib but redefinition may cause problems\n' \
+                % (' '.join(match for match in matches), fname)
             libs.add(fname)
             frcmod = util.get_base(fname) + '.frcmod'
             if os.path.isfile(frcmod):
@@ -340,15 +359,30 @@ if __name__ == '__main__':
     mol_data = {}
     nonstandard_res = {}
     standard_res = util.get_available_res(ff)
-    #TODO: support additional file formats
+    
+    #if any structure was not provided in PDB format, we will attempt to create
+    #one from what was provided using obabel, choosing a filename that will not
+    #overwrite anything in the directory
     for structure in args.structures:
         assert os.path.isfile(structure),'%s does not exist\n' % structure
+        if os.path.splitext(structure)[-1] != '.pdb':
+            base = util.get_base(structure)
+            outpdb = base + '.pdb'
+            outpdb = util.get_fname(outpdb)
+            try:
+                obabel[structure, '-O', outpdb]
+            except Exception as e:
+                print 'Cannot create PDB from input, error {0} : {1}. Check \
+                {2}. Aborting...\n'.format(e.errno, e.strerror, outpdb)
+                sys.exit()
+            idx = args.structures.index(structure)
+            args.structures[idx] = outpdb
         mol_res = {}
         mol_data[structure] = pdb.simplepdb(structure)
         mol_res[structure] = set(mol_data[structure].mol_data['resname'])
         nonstandard_res[structure] = list(mol_res[structure] - standard_res)
 
-    #if so, do we have the necessary library files? 
+    #if nonstandard residues, do we have the necessary library files? 
     #check for prep, lib, and off; just add the frcmod if there is one
     libs = set([])
     #make an iterator in case we need to get library names from input arg
@@ -364,13 +398,14 @@ if __name__ == '__main__':
                 fname = userlib + ext
                 if os.path.isfile(fname):
                     #TODO: allow the user to redefine things with a warning
-                    set_matches(fname, libs, reslist, orphaned_res)
+                    set_matches(fname, libs, reslist, orphaned_res,
+                            mol_data[struct], True)
         #if necessary, check the current directory too
         if orphaned_res:
             local_libs = [name for name in glob.glob('*.lib') +
                     glob.glob('*.off') + glob.glob('*.prep')]
             for lib in local_libs:
-                set_matches(lib, libs, reslist, orphaned_res)
+                set_matches(lib, libs, reslist, orphaned_res, mol_data[struct])
    
         is_protein = mol_data[struct].is_protein()
         #for now, require that the ligand be provided separately from the protein -

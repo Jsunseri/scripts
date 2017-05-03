@@ -95,7 +95,7 @@ def get_units(lib):
     units = []
     ext = os.path.splitext(lib)[-1]
     with open(lib,'r') as f:
-        if ext != 'prep':
+        if ext[0:4] != 'prep':
             copy = False
             for line in f:
                 if line.startswith('!!index array str'):
