@@ -143,7 +143,7 @@ out,err = p.communicate()
 if err:
         print err
 
-cmd = 'convert -delay 20 -loop 0 *.png ligand_friend.gif'
+cmd = 'convert -delay 20 -loop 0 $(ls -v *.png) ligand_friend.gif'
 p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
 out,err = p.communicate()
 if err:
