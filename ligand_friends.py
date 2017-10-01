@@ -131,11 +131,15 @@ with open('friends.py','w') as file:
     file.write('cmd.load("conformers.sdf")\n')
     file.write('cmd.bg_color("white")\n')
     file.write('cmd.show_as("sticks")\n')
+    file.write('util.cbaw()\n')
+    # file.write('cmd.set("ray_opaque_background", "off")\n')
+    file.write('cmd.set("ray_shadows", "off")\n')
+    file.write('cmd.set("antialias", 2)\n')
+    file.write('cmd.orient("all", state=1)\n')
     #file.write('cmd.set("ray_trace_frames","1")\n')
     for i in range(1,max_steps+1):
         file.write('cmd.set("state",%d)\n' %i)
-        file.write('cmd.ray()\n')
-        file.write('cmd.png("conf_%d.png")\n' %i)
+        file.write('cmd.png("conf_%d.png", dpi=300, ray=1)\n' %i)
 
 cmd = 'pymol -cq friends.py'
 p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
