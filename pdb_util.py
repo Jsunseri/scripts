@@ -177,7 +177,7 @@ def get_available_res(ff=''):
 #available parameters that aren't distributed with AMBER
 common_ions_and_cofactors = set(['GDP', 'GTP', 'ADP', 'ATP', 'FMN', 'FAD',
     'NAD', 'NADH', 'NAH', 'NDP', 'NPD', 'NPH', 'ARP', 'HEM', 'HEME', 'MG', 
-    'CO6', 'CAL', 'MNG', 'SO4', 'PO4'])
+    'CO6', 'CAL', 'MNG', 'SO4', 'PO4', 'EOH'])
 
 #modified amino acid residues that have parameters at the AMBER parameter
 #database http://research.bmh.manchester.ac.uk/bryce/amber

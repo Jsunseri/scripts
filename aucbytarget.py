@@ -4,62 +4,85 @@ import collections
 from sklearn.metrics import roc_curve, roc_auc_score
 from argparse import ArgumentParser
 import numpy as np
-import bootstrap
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib as mpl
 
 plt.style.use('seaborn-white')
-vina_color='#CCBB44'
-# CSAR, DUD-E, 2:1
-cnn_colors = ['#332288', '#4477aa', '#88ccee']
-sns.set_palette([vina_color] + cnn_colors)
+SMALL_SIZE=14
+MEDIUM_SIZE=16
+BIGGER_SIZE=24
+SUBFIG_SIZE=30
 
-def calc_auc(target_predictions,use_bootstrap):
-	if use_bootstrap: 
-		_,auc,_= bootstrap.bootstrap(target_predictions,1000)
-		return auc
+plt.rc('font', size=BIGGER_SIZE)          # controls default text sizes
+plt.rc('axes', titlesize=MEDIUM_SIZE)     # fontsize of the axes title
+plt.rc('axes', labelsize=MEDIUM_SIZE)    # fontsize of the x and y labels
+plt.rc('xtick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
+plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
+plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
+
+mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
+mpl.rc('text', usetex=True)
+
+paper_palettes = {}
+paper_palettes['Vina'] = '#000000' #the original CNN paper used ccbb44
+paper_palettes['CSAR'] = '#332288'
+paper_palettes['DUD-E'] = '#4477aa'
+paper_palettes['2:1'] = '#88ccee'
+paper_palettes['CNN Affinity Rescore'] = '#6da4c0'
+paper_palettes['CNN Affinity Refine'] = '#332288'
+paper_palettes['CNN Scoring Rescore'] = '#ffd91c'
+paper_palettes['CNN Scoring Refine'] = '#877b25'
+paper_palettes['Experiment'] = '#498540'
+
+def calc_auc(target_and_method, target_predictions):
 	y_true=[]
 	y_score=[]
-	for line in target_predictions:
-		try:
-			values= line.split(" ")
-			if float(values[0]) == 1 or float(values[0]) ==0:
-				y_true.append(float(values[0]))
-				y_score.append(float(values[1]))
-			elif float(values[1]) ==1 or float(values[1])==0:
-				y_true.append(float(values[1]))
-				y_score.append(float(values[0]))
-		except Exception as e:
-			print 'Error: %s'%line
-			continue
+	for i,item in enumerate(target_predictions):
+	    try:
+                label = float(item[0])
+                score = float(item[1])
+	        y_true.append(label)
+	        y_score.append(score)
+	    except Exception as e:
+	        print 'Error: %d %f %s\n'%(label, score, target_and_method[i])
+	        continue
         fpr,tpr,_ = roc_curve(y_true,y_score)
 	return roc_auc_score(y_true,y_score),fpr,tpr
 
-def mean_auc(ordered_dict,methods,target_list,args):
+def mean_auc(data, methods, targets, args):
+        #use this palette if the methods don't correspond to methods used in
+        #any of the old papers, which have associated colors
+        backup_palette = sns.color_palette("Set1", n_colors=len(methods), desat=.5)
+
+        #overall_auc tracks and reports the average AUC across all targets
+        #bytarget tracks and reports the AUC for each target for each method
         overall_auc = {}
-        bytarget_dict = {}
+        bytarget = {}
         for method in methods:
-	    bytarget_dict[method] = open('%s_%s'%(method,args.outprefix),'w')
+	    bytarget[method] = open('%s_%s'%(method,args.outprefix),'w')
         if args.make_boxplot:
             boxplot_dat = []
-        total_plots = len(target_list)
+        total_plots = len(targets)
         if total_plots > 9:
             mpl.rcParams['xtick.labelsize'] = 8
             mpl.rcParams['ytick.labelsize'] = 8
-        # sns.set_palette(sns.color_palette("Set1", n_colors=len(methods), desat=.5))
         grid_width = int(math.ceil(math.sqrt(total_plots)))
         grid_length = int(math.ceil(float(total_plots)/grid_width))
         fig,fig_ax = plt.subplots(figsize=(8,8))
+
+        #if there is only one output plot, print AUCs on the legend; otherwise
+        #make a single shared legend for all plots without AUCs
         legend_dict = {}
         num_lines = {}
-	for t,l in ordered_dict.items():
-		auc,fpr,tpr = calc_auc(l,args.bootstrap)
-                bytarget_dict[t[1]].write('%s %.3f\n'%(t[0],auc))
+	for t,l in data.iteritems():
+		auc,fpr,tpr = calc_auc(t,l)
+                bytarget[t[1]].write('%s %.3f\n' %(t[0],auc))
                 if args.make_boxplot:
-                    boxplot_dat.append({'Method' : t[1].split('_')[0], 'AUC' : auc})
-                plot_num = target_list.index(t[0])
+                    boxplot_dat.append({'Method' : t[1], 'AUC' : auc})
+                plot_num = targets.index(t[0])
                 if t[1] not in overall_auc.keys():
                     overall_auc[t[1]] = 0
                 overall_auc[t[1]] += float(auc)
@@ -68,9 +91,14 @@ def mean_auc(ordered_dict,methods,target_list,args):
                     ax = plt.subplot2grid((grid_length,grid_width),
                             (plot_num / grid_width, plot_num % grid_width))
                     ax.set_aspect('equal')
+                    for tick in ax.get_xticklabels():
+                        tick.set_rotation(-90)
                     legend_dict[plot_num] = ax
-                legend_dict[plot_num].plot(fpr,tpr,#color=sns.color_palette()[methods.index(t[1])-1],
-                        label=t[1].split('_')[0], zorder=2) #'%s, AUC=%0.2f' % (t[1].split('_')[0],auc))
+                method = t[1]
+                color = paper_palettes[method] if method in paper_palettes else backup_palette[methods.index(method)]
+                label = '%s, AUC=%0.2f' % (t[1], auc) if total_plots == 1 else t[1]
+                legend_dict[plot_num].plot(fpr, tpr, color=color, label=label,
+                        zorder=2) 
                 num_lines[plot_num] += 1
                 if int(plot_num) / grid_width == grid_length-1:
                     legend_dict[plot_num].set_xlabel('False Positive Rate')
@@ -78,91 +106,124 @@ def mean_auc(ordered_dict,methods,target_list,args):
                     legend_dict[plot_num].set_ylabel('True Positive Rate')
                 if num_lines[plot_num] == len(methods):
                     legend_dict[plot_num].set_title('Target %s' % (t[0]))
-                    # legend_dict[plot_num].legend(loc='center left', bbox_to_anchor=(1,0.5), 
-                            # fontsize='xx-small')
-		if args.create_files:
-			pfile= open('%s_predictions'%t[1], 'w')
-			for line in l:
-				pfile.write('%s\n'%line)
-			print '%s_predictions created'%t[1]
-			pfile.close()
-        handle_list = []
-        label_list = []
-        for plot in legend_dict.keys():
-            handles,labels = legend_dict[plot].get_legend_handles_labels()
-            handle_list = handle_list + handles
-            label_list = label_list + labels
-        #TODO: remove the next few lines after CNN paper figs are done...
-        indices = [2,0,3,1]
-        final_handles = [handle_list[i] for i in indices]
-        final_labels = [label_list[i] for i in indices]
-        box = legend_dict[total_plots-2].get_position()
-        # fig.legend(handle_list[0:len(args.predictions)],
-                # label_list[0:len(args.predictions)],
-                # loc=(box.x0-0.24,box.y0-0.105),
-                # fontsize=14, frameon=True, ncol=4)
-        fig.legend(final_handles, final_labels, loc=(box.x0+0.465, box.y0-0.035),
-                fontsize=14, frameon=True)
+                    if total_plots == 1:
+                        legend_dict[plot_num].legend(loc='center left',
+                                bbox_to_anchor=(1,0.5))
+
+        #if we have multiple subplots, make a shared legend; constrain CNN
+        #paper order to follow line order
+        handles,labels = legend_dict[0].get_legend_handles_labels()
+        if args.color_scheme == 'cnn':
+            shortlabels = [x.split(',')[0] for x in labels]
+            indices = []
+            cnnpaper_order = ['DUD-E', 'Vina', '2:1', 'CSAR']
+            for label in cnnpaper_order:
+                indices.append(shortlabels.index(label))
+            handles = [handles[i] for i in indices]
+            labels = [labels[i] for i in indices]
+            box = legend_dict[total_plots-2].get_position()
+            fig.legend(handles, labels, loc=(box.x0+0.465, box.y0-0.035), frameon=True)
+        elif args.color_scheme == 'd3r':
+            indices = []
+            cnnpaper_order = ['CNN Affinity Rescore', 'CNN Affinity Refine',
+                    'CNN Scoring Rescore', 'CNN Scoring Refine', 'Vina']
+            for label in cnnpaper_order:
+                indices.append(labels.index(label))
+            handles = [handles[i] for i in indices]
+            labels = [labels[i] for i in indices]
+            fig.legend(handles, labels, loc='lower right',
+                    bbox_to_anchor=(0.88, -0.014), frameon=True)
+        else:
+            box = legend_dict[total_plots-1].get_position()
+            if grid_length == grid_width:
+                #put the legend underneath
+                xloc = box.x0 + 1
+                yloc = box.y0 + 5
+            else:
+                xloc = box.x0 + 0.465
+                yloc = box.y0 - 0.035
+            legend = fig.legend(handles, labels, loc='best', frameon=True)
+
+        #add in line showing random performance
         for plot_num in legend_dict:
             legend_dict[plot_num].plot([0, 1], [0, 1], color='gray', lw=2,
                linestyle='--', zorder=1)
-        fig.tight_layout()
-        fig.subplots_adjust(wspace=0.05,hspace=0.5)
+        if args.color_scheme == 'cnn':
+            fig.subplots_adjust(wspace=0.05, hspace=0.5)
+        else:
+            #TODO: currently doing this via manual tuning - can it be
+            #automated? if you are using this, you may need to fiddle with
+            #these numbers and be aware that if you try to use tight_layout it
+            #seems to override whatever you do here
+            fig.subplots_adjust(hspace=-0.4, wspace=0.45)
         for method in overall_auc.keys():
 	    overall_auc[method] /= total_plots
 	    # outfile.write('%s, AUC %.2f\n' 
                     # % (method.split('_')[0],overall_auc[method]))
         for method in methods:
-            bytarget_dict[method].close()
+            bytarget[method].close()
         fig.savefig(args.plotname+'.pdf', bbox_inches='tight')
+
+        #now do boxplot
         fig,ax = plt.subplots()
         if args.make_boxplot:
+            if args.color_scheme == 'd3r' or args.color_scheme == 'cnn':
+                palette = paper_palettes
+            else:
+                palette = backup_palette
             boxplot_df = pd.DataFrame(boxplot_dat)
             ax = sns.swarmplot(x='Method', y='AUC',
-                    data=boxplot_df, split=True, edgecolor='black', linewidth=1)
-            ax = sns.boxplot(x='Method', y='AUC', data=boxplot_df)
+                    data=boxplot_df, split=True, edgecolor='black', size=7,
+                    linewidth=0, palette = palette)
+            ax = sns.boxplot(x='Method', y='AUC', data=boxplot_df,
+                    color='white')
             handles,labels = ax.get_legend_handles_labels()
-            ax.legend(handles[0:len(args.predictions)],
-                    labels[0:len(args.predictions)], loc='best', bbox_to_anchor=(1,0.5))
+            seen = set()
+            handles = [x for x in handles if x not in seen and not seen.add(x)]
+            seen = set()
+            labels = [x for x in labels if x not in seen and not seen.add(x)]
+            ax.legend(handles, labels, loc='best', bbox_to_anchor=(1,0.5))
             ax.set_ylabel('AUCs')
+            ax.set_xlabel('')
+            ax.set(ylim=(0,1.1))
+            for tick in ax.get_xticklabels():
+                tick.set_rotation(45)
             fig.savefig(args.plotname+'_boxplot.pdf', bbox_inches='tight')
 	return overall_auc
 
 if __name__=='__main__':
-	parser = ArgumentParser(description='Calculate AUC by targets')
-	parser.add_argument('-p','--predictions', nargs='*',default=[],help='files of predictions')
+	parser = ArgumentParser(description='Calculate AUC by target for multiple methods')
+	parser.add_argument('-p','--predictions', nargs='*', default=[], 
+                help='files of predictions, formatted LABELS PREDICTIONS TARGET METHOD where METHOD is stylized as desired for output, with spaces replaced with underscores')
 	parser.add_argument('-o','--outprefix',type=str,default='bytarget',help='prefix for all output files')
-	parser.add_argument('-create_files', action='store_true',default=False, help='create files for each target')
-	parser.add_argument('-b','--bootstrap', action='store_true',default=False,help='use bootstrapping when calculating AUCs')
         parser.add_argument('-n','--plotname', default='roc_curve_bytarget',
                 help='Output filename for by-target ROC curves')
         parser.add_argument('-make_boxplot', action='store_true',
-                default=False, help='Make a boxplot of the AUC values \
-                associated with each method')
+                default=False, help='Make a boxplot of the by-target AUC values \
+associated with each method')
+        parser.add_argument('-color_scheme', required=False, choices=['cnn', 'd3r'], 
+            help='Specify color scheme, choosing from the one used in the CNN \
+paper or the one used in the 2018 D3R paper; if used, the \
+predictions files must have names indicating the correct methods to \
+use those color schemes')
 	args= parser.parse_args()
 	
-	 
-	ordered_dict = collections.OrderedDict()
-        methods = []
-        target_list = []
+        data = {}
+        methods,targets = [],[]
+        if args.color_scheme == 'cnn':
+            paper_palettes['Vina'] = '#CCBB44'
 	for file in args.predictions:
-		for line in open(file,'r'):
-			target = line.split(" ")[2]
-                        temp_target = os.path.basename(os.path.dirname(target))
-                        #for swapping the decoys associated with the target
-                        #shared between MUV and ChEMBL
-                        # if "chembl" in file.lower() and temp_target == "466":
-                            # temp_target = "11631"
-                        # elif "muv" in file.lower() and temp_target == "11631":
-                            # temp_target = "466"
-        		target = (temp_target,
-                                os.path.splitext(os.path.basename(file))[0])
-        		if target in ordered_dict: ordered_dict[target].append(line)
-        		else:
-                		#print target 
-                		ordered_dict[target]=[line]
-                        if target[0] not in target_list: target_list.append(target[0])
-                        if target[1] not in methods: methods.append(target[1])
-	auc = mean_auc(ordered_dict,methods,target_list,args)
-	print auc
-	
+	    for line in open(file,'r'):
+                contents = line.split()
+                target = contents[2].replace('_', ' ')
+                method = contents[3].replace('_', ' ')
+                if target not in targets:
+                    targets.append(target)
+                if method not in methods:
+                    methods.append(method)
+                this_key = (target,method)
+                if this_key not in data:
+                    data[this_key] = []
+                data[this_key].append((contents[0],contents[1]))
+	auc = mean_auc(data, methods, targets, args)
+        print auc

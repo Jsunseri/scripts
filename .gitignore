@@ -1,0 +1,9 @@
+#vim temp files
+*.swp
+*.swo
+
+#tags files
+tags
+
+#pyc files
+*.pyc

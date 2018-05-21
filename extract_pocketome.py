@@ -26,14 +26,13 @@ def parse_pocketome(xml):
     for i,entry in enumerate(struct_list):
         # we don't mess around with covalently bound ligands
         if entry.getElementsByTagName('covlig'): continue
+        ligs = entry.getElementsByTagName('ligand')
+        # might want to change this
+        if not ligs: continue
         id = entry.attributes["id"].value
         output['pdb'].append(id[1:-1])
         output['chain'].append(str(id[-1].upper()))
-        ligs = entry.getElementsByTagName('ligand')
-        if ligs:
-            ligs = ligs[0].firstChild.nodeValue.split(',')
-        else:
-            ligs = []
+        ligs = ligs[0].firstChild.nodeValue.split(',')
         output['lig'].append(ligs)
     return output
 
@@ -48,10 +47,14 @@ def protein_align(pdb, ref, **kwargs):
         (kwargs['pdb_chain']))
     if kwargs['ref_chain']:
         static = static.select('chain %s ' % (kwargs['ref_chain']))
-    rmatch, tmatch, seqid, overlap = prody.matchChains(static, mobile,
-            pwalign=True, overlap=70)[0]
-    moved, transformation = prody.superpose(tmatch, rmatch)
-    return mobile
+    try:
+        rmatch, tmatch, seqid, overlap = prody.matchChains(static, mobile,
+                pwalign=True, overlap=70)[0]
+        moved, transformation = prody.superpose(tmatch, rmatch)
+        return mobile
+    except:
+        print "Failed to match %s, continuing...\n" %pdb
+        return prody.parsePDB(pdb)
 
 def write_output(structure, name, outdir, chain, ligs):
     outname = outdir + '/' + name
