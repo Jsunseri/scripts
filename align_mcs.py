@@ -33,6 +33,3 @@ for i,mol in enumerate(mobile):
     refMatch = ref.GetSubstructMatch(core) 
     AllChem.AlignMol(mol, ref, atomMap=zip(match,refMatch)) 
     writer.write(mol)
-
-os.remove(tmpin)
-os.remove(tmpout)
