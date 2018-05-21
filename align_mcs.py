@@ -2,11 +2,6 @@
 from rdkit.Chem import AllChem
 from rdkit.Chem import rdFMCS
 import sys,os
-import filecmp
-try:
-    from plumbum.cmd import obfit
-except ImportError:
-    raise ImportError('Check that obfit is on your path')
 
 def getmol(file):
     ext = os.path.splitext(file)[-1]
@@ -20,7 +15,7 @@ def getmol(file):
     return ref
 
 if len(sys.argv[1:]) < 2:
-    print "Too few args for alignment.\nUSAGE: alignmols.py [REF] [MOBILE]"
+    print "Too few args for alignment.\nUSAGE: align_mcs.py [REF] [MOBILE]"
 
 reffile = sys.argv[1]
 ref = getmol(reffile)
@@ -33,22 +28,11 @@ name = os.path.splitext(sys.argv[2])[0]
 writer = AllChem.SDWriter('%s_aligned_to_xtal.sdf' %name)
 for i,mol in enumerate(mobile):
     res = rdFMCS.FindMCS([mol,ref], completeRingsOnly=True)
-    smarts = res.smartsString
-    tmpin = 'intmp.sdf'
-    tmpwriter = AllChem.SDWriter(tmpin)
-    tmpwriter.write(mol)
-    out = obfit[smarts, reffile, tmpin]()
-    if len(out) != 0:
-        tmpout = 'outtmp.sdf'
-        with open(tmpout, 'w') as outf:
-            for line in out:
-                outf.write(line)
-        if filecmp.cmp(tmpin, tmpout, shallow=False):
-            print 'Failed to align mol %d\n' %i
-            continue
-        else:
-            tmpmol = AllChem.SDMolSupplier(tmpout)[0]
-            writer.write(tmpmol)
+    core = AllChem.MolFromSmarts(res.smartsString)
+    match = mol.GetSubstructMatch(core)   
+    refMatch = ref.GetSubstructMatch(core) 
+    AllChem.AlignMol(mol, ref, atomMap=zip(match,refMatch)) 
+    writer.write(mol)
 
 os.remove(tmpin)
 os.remove(tmpout)

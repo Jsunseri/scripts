@@ -16,7 +16,7 @@ def getmol(file):
     return ref
 
 if len(sys.argv[1:]) < 2:
-    print "Too few args for alignment.\nUSAGE: alignmols.py [REF] [MOBILE]"
+    print "Too few args for alignment.\nUSAGE: align_by_scaffold.py [REF] [MOBILE]"
 
 reffile = sys.argv[1]
 ref = getmol(reffile)
