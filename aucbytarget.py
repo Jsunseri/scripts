@@ -36,6 +36,7 @@ paper_palettes['CNN Affinity Refine'] = '#332288'
 paper_palettes['CNN Scoring Rescore'] = '#ffd91c'
 paper_palettes['CNN Scoring Refine'] = '#877b25'
 paper_palettes['Experiment'] = '#498540'
+swarm_markers = ['^', '>', '*', 's', 'o', '<']
 
 def calc_auc(target_and_method, target_predictions):
 	y_true=[]
@@ -81,7 +82,8 @@ def mean_auc(data, methods, targets, args):
 		auc,fpr,tpr = calc_auc(t,l)
                 bytarget[t[1]].write('%s %.3f\n' %(t[0],auc))
                 if args.make_boxplot:
-                    boxplot_dat.append({'Method' : t[1], 'AUC' : auc})
+                    boxplot_dat.append({'Method' : t[1], 'AUC' : auc, 'Target'
+                        : t[0]})
                 plot_num = targets.index(t[0])
                 if t[1] not in overall_auc.keys():
                     overall_auc[t[1]] = 0
@@ -172,11 +174,32 @@ def mean_auc(data, methods, targets, args):
             else:
                 palette = backup_palette
             boxplot_df = pd.DataFrame(boxplot_dat)
-            ax = sns.swarmplot(x='Method', y='AUC',
-                    data=boxplot_df, split=True, edgecolor='black', size=7,
-                    linewidth=0, palette = palette)
+            #if we're doing the d3r paper figs, David wants a different marker
+            #style for each target because having per-target ROC plots isn't
+            #enough for him...
+            if args.color_scheme == 'd3r':
+                cnnpaper_order = ['CNN Affinity Rescore', 'CNN Affinity Refine',
+                        'CNN Scoring Rescore', 'CNN Scoring Refine', 'Vina']
+                for marker_id,target in enumerate(targets):
+                    marker = swarm_markers[marker_id]
+                    if marker == '+' or marker == '*':
+                        mew = 10
+                        size = 15
+                    else:
+                        mew = 0.5
+                        size = 10
+                    sns.swarmplot(x='Method', y='AUC',
+                            data=boxplot_df[boxplot_df['Target']==target],
+                            split=True, edgecolor='black', size=size, linewidth=0,
+                            linewidths=mew, 
+                            palette=palette, marker=marker,
+                            order=cnnpaper_order)
+            else:
+                ax = sns.swarmplot(x='Method', y='AUC',
+                        data=boxplot_df, split=True, edgecolor='black', size=7,
+                        linewidth=0, palette = palette)
             ax = sns.boxplot(x='Method', y='AUC', data=boxplot_df,
-                    color='white')
+                    color='white', order=cnnpaper_order)
             handles,labels = ax.get_legend_handles_labels()
             seen = set()
             handles = [x for x in handles if x not in seen and not seen.add(x)]
