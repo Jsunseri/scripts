@@ -8,6 +8,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import matplotlib as mpl
+import matplotlib.lines as mlines
 
 plt.style.use('seaborn-white')
 SMALL_SIZE=14
@@ -37,6 +38,13 @@ paper_palettes['CNN Scoring Rescore'] = '#ffd91c'
 paper_palettes['CNN Scoring Refine'] = '#877b25'
 paper_palettes['Experiment'] = '#498540'
 swarm_markers = ['^', '>', '*', 's', 'o', '<']
+blue_star = mlines.Line2D([], [], color='black', marker='^', linestyle='None',
+                                  markersize=10, label='Blue stars')
+red_square = mlines.Line2D([], [], color='red', marker='s', linestyle='None',
+                                  markersize=10, label='Red squares')
+purple_triangle = mlines.Line2D([], [], color='purple', marker='^',
+        linestyle='None',
+                                  markersize=10, label='Purple triangles')
 
 def calc_auc(target_and_method, target_predictions):
 	y_true=[]
@@ -133,8 +141,7 @@ def mean_auc(data, methods, targets, args):
                 indices.append(labels.index(label))
             handles = [handles[i] for i in indices]
             labels = [labels[i] for i in indices]
-            fig.legend(handles, labels, loc='lower right',
-                    bbox_to_anchor=(0.88, -0.014), frameon=True)
+            fig.legend(handles, labels, loc='lower center', ncol=3, frameon=True)
         else:
             box = legend_dict[total_plots-1].get_position()
             if grid_length == grid_width:
@@ -180,6 +187,7 @@ def mean_auc(data, methods, targets, args):
             if args.color_scheme == 'd3r':
                 cnnpaper_order = ['CNN Affinity Rescore', 'CNN Affinity Refine',
                         'CNN Scoring Rescore', 'CNN Scoring Refine', 'Vina']
+                leghands = []
                 for marker_id,target in enumerate(targets):
                     marker = swarm_markers[marker_id]
                     if marker == '+' or marker == '*':
@@ -188,29 +196,39 @@ def mean_auc(data, methods, targets, args):
                     else:
                         mew = 0.5
                         size = 10
-                    sns.swarmplot(x='Method', y='AUC',
+                    sns.stripplot(x='Method', y='AUC',
                             data=boxplot_df[boxplot_df['Target']==target],
                             split=True, edgecolor='black', size=size, linewidth=0,
-                            linewidths=mew, 
+                            linewidths=mew, jitter = True,
                             palette=palette, marker=marker,
-                            order=cnnpaper_order)
+                            order=cnnpaper_order, ax=ax)
+                    leghands.append(mlines.Line2D([], [], color='black',
+                        fillstyle='none', marker=marker, linestyle='None',
+                        mew=1,
+                        markersize=size, label=target))
+                # ax.legend(handles=leghands, bbox_to_anchor=(1,-0.2),
+                        # frameon=True)
+                ax.legend(handles=leghands, loc='lower left', ncol=2, 
+                        frameon=True)
             else:
-                ax = sns.swarmplot(x='Method', y='AUC',
+                sns.swarmplot(x='Method', y='AUC',
                         data=boxplot_df, split=True, edgecolor='black', size=7,
-                        linewidth=0, palette = palette)
-            ax = sns.boxplot(x='Method', y='AUC', data=boxplot_df,
-                    color='white', order=cnnpaper_order)
-            handles,labels = ax.get_legend_handles_labels()
-            seen = set()
-            handles = [x for x in handles if x not in seen and not seen.add(x)]
-            seen = set()
-            labels = [x for x in labels if x not in seen and not seen.add(x)]
-            ax.legend(handles, labels, loc='best', bbox_to_anchor=(1,0.5))
+                        linewidth=0, palette = palette, ax=ax)
+            sns.boxplot(x='Method', y='AUC', data=boxplot_df,
+                    color='white', order=cnnpaper_order, ax=ax)
             ax.set_ylabel('AUCs')
             ax.set_xlabel('')
             ax.set(ylim=(0,1.1))
+            xlims = ax.get_xlim()
+            ax.plot([xlims[0],xlims[1]],[0.5, 0.5], linestyle='--', color='gray',
+                    lw=2, zorder=1, alpha=0.5)
             for tick in ax.get_xticklabels():
                 tick.set_rotation(45)
+            if args.color_scheme == 'd3r':
+                labels = ax.get_xticklabels()
+                labels = [label.get_text().split() for label in labels]
+                labels = ['%s %s\n%s'%(x[0],x[1],x[2]) if not x[0] == 'Vina' else x[0] for x in labels]
+                ax.set_xticklabels(labels)
             fig.savefig(args.plotname+'_boxplot.pdf', bbox_inches='tight')
 	return overall_auc
 
