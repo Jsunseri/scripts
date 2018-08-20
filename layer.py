@@ -93,9 +93,9 @@ class layer:
                 else:
                     if paramname == 'shape':
                         for dim in value:
-                            ofile.write('{}{}: "{}"\n'.format(nspaces * ' ', 
+                            ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
                                 paramname, dim))
                     else:
-                        ofile.write('{}{}: "{}"\n'.format(nspaces * ' ', 
+                        ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
                             paramname, value))
             ofile.write('{}}}\n'.format(nspaces * ' '))
