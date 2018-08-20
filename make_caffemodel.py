@@ -162,6 +162,8 @@ replicating first specified for all layers.\n"
     #now check whether we have lstm layers and how many
     layerparam = layerspec['LSTM']
     if int(layerparam['n_lstm_layers']) > 0:
+        assert layers[0].get_type() == 'MolGridData'
+        layers[0].add_top("seqcont")
         nlayers = int(layerparam.pop('n_lstm_layers'))
         hidden_dim = layerparam.pop('hidden_dim')
         hidden_dim = [int(elem) for elem in hidden_dim] #seems unnecessary, figure out why it isn't
