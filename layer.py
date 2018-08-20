@@ -22,7 +22,7 @@ class layer:
             self.layer_count[self.type] = 0
         self.layer_count[self.type] += 1
         if not self.name:
-            self.name = self.type + str(self.layer_count)
+            self.name = self.type.lower() + str(self.layer_count[self.type])
         self.top = top
         if not self.top:
             self.top = [self.name]
@@ -52,14 +52,17 @@ class layer:
         return self.type
 
     def format_paramname(self, name):
-        #TODO: remove, don't need this since we're independently maintaining 
-        #types and dict keys so the dict keys should just be correctly formatted
+        #TODO: remove? hacky...
         if name == 'MolGridData':
             return 'molgrid_data_param'
         elif name == 'AffinityLoss':
             return 'affinity_loss_param'
         elif name == 'InnerProduct':
             return 'inner_product_param'
+        elif name == 'LSTM':
+            return 'recurrent_param'
+        elif name == 'weight_filler' or name == 'shape':
+            return name
         else:
             return name.lower() + '_param'
 
@@ -74,9 +77,10 @@ class layer:
             ofile.write('  bottom: "%s"\n' %b)
         for t in self.top:
             ofile.write('  top: "%s"\n' %t)
-        ofile.write('  include {\n')
-        ofile.write('    phase: %s\n' %self.phase)
-        ofile.write('  }\n')
+        if self.phase:
+            ofile.write('  include {\n')
+            ofile.write('    phase: %s\n' %self.phase)
+            ofile.write('  }\n')
         self.write_params(self.params, ofile)
         ofile.write('}\n')
 
@@ -91,11 +95,21 @@ class layer:
                 if isinstance(value, dict):
                     self.write_params({paramname: value}, ofile, nspaces+2)
                 else:
-                    if paramname == 'shape':
+                    if paramname == 'dim':
                         for dim in value:
-                            ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
+                            ofile.write('{}{}: {}\n'.format((nspaces +2)* ' ', 
                                 paramname, dim))
-                    else:
-                        ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
+                    elif paramname == 'pool':
+                        ofile.write('{}{}: {}\n'.format((nspaces +2)* ' ', 
                             paramname, value))
+                    else:
+                        if isinstance(value, str):
+                            ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
+                                paramname, value))
+                        elif isinstance(value, bool):
+                            ofile.write('{}{}: {}\n'.format((nspaces +2)* ' ', 
+                                paramname, str(value).lower()))
+                        else:
+                            ofile.write('{}{}: {}\n'.format((nspaces +2)* ' ', 
+                                paramname, value))
             ofile.write('{}}}\n'.format(nspaces * ' '))

@@ -25,7 +25,7 @@ def add_layer_of_type(type, layerparam, layers):
         aff = params.pop('affinity')
         if aff: 
             top.append('affinity')
-            params['has_affinity'] = 'true'
+            params['has_affinity'] = True
         lab = params.pop('label')
         if lab: 
             top.append('label')
@@ -37,18 +37,18 @@ def add_layer_of_type(type, layerparam, layers):
         for phase in ["TEST", "TRAIN"]:
             params['source'] = '%sFILE' %phase
             if phase == "TEST":
-                params["shuffle"] = "false"
-                params["balanced"] = "false"
+                params["shuffle"] = False
+                params["balanced"] = False
             else:
-                params["shuffle"] = "true"
-                params["balanced"] = "true"
-                params["random_rotation"] = "true"
-                params["random_translate"] = "2"
+                params["shuffle"] = True
+                params["balanced"] = True
+                params["random_rotation"] = True
+                params["random_translate"] = 2
             layers.append(layer(type, layerparam, top, [], name, phase))
         if lab:
-            params['label'] = 'true'
+            params['label'] = True
         if aff:
-            params['predaff'] = 'true'
+            params['predaff'] = True
 
     if type == 'Convolution' or type == "Pooling" or type == "LSTM":
         bottom = layers[-1].get_top()
@@ -59,7 +59,6 @@ def add_layer_of_type(type, layerparam, layers):
 
     if type in activation_types:
         bottom = layers[-1].get_top()
-        assert len(bottom) == 1, "Don't use activation on data layer."
         top = bottom
         layers.append(layer(type, layerparam, top, bottom))
 
@@ -100,7 +99,7 @@ def add_layer_of_type(type, layerparam, layers):
             phase = params.pop('phase')
         except:
             pass
-        bottom = params.pop('bottom')
+        bottom = [params.pop('bottom')]
         layers.append(layer(type, layerparam, [], bottom, name, phase))
 
 def make_model(layerspec):
@@ -120,24 +119,40 @@ def make_model(layerspec):
     if int(layerparam['n_cnn_layers']) > 0:
         nlayers = int(layerparam.pop('n_cnn_layers'))
         nfilters = layerparam.pop('n_cnn_filters')
+        nfilters = [int(elem) for elem in nfilters] #seems unnecessary, figure out why it isn't
         if len(nfilters) < nlayers:
-            print "Number of CNN filter sizes provided is smaller than \
+            if len(nfilters) > 1:
+                print "Number of CNN filter sizes provided is smaller than \
 the number of CNN layers; inferring additional filter dimensions \
 from the first.\n"
             for i in range(1, nlayers):
                 nfilters.append(int(nfilters[i-1]) * 2)
+        stride = layerparam.pop('stride')
+        if len(stride) < nlayers:
+            stride = stride * nlayers
+        pad = layerparam.pop('pad')
+        if len(pad) < nlayers:
+            pad = pad * nlayers
+        kernel_size = layerparam.pop('kernel_size')
+        if len(kernel_size) < nlayers:
+            kernel_size = kernel_size * nlayers
         activation = layerparam.pop('activation')
         if len(activation) < nlayers:
-            print "Warning: fewer activation classes provided than conv layers; \
+            if len(activation) > 1:
+                print "Warning: fewer activation classes provided than conv layers; \
 replicating first specified for all layers.\n"
             activation = activation * nlayers
         cnn_weight_fill = layerparam.pop('cnn_weight_fill')
         if len(cnn_weight_fill) < nlayers:
-            print "Warning: fewer weight fill classes provided than conv layers; \
+            if len(cnn_weight_fill) > 1:
+                print "Warning: fewer weight fill classes provided than conv layers; \
 replicating first specified for all layers.\n"
             cnn_weight_fill = cnn_weight_fill * nlayers
 
         for i in range(nlayers):
+            layerparam['stride'] = stride[i]
+            layerparam['pad'] = pad[i]
+            layerparam['kernel_size'] = kernel_size[i]
             layerparam['num_output'] = nfilters[i]
             layerparam['weight_filler'] = {'type': cnn_weight_fill[i]}
             add_layer_of_type('Convolution', {"Convolution": layerparam}, layers)
@@ -149,15 +164,18 @@ replicating first specified for all layers.\n"
     if int(layerparam['n_lstm_layers']) > 0:
         nlayers = int(layerparam.pop('n_lstm_layers'))
         hidden_dim = layerparam.pop('hidden_dim')
+        hidden_dim = [int(elem) for elem in hidden_dim] #seems unnecessary, figure out why it isn't
         if len(hidden_dim) < nlayers:
-            print "Number of LSTM hidden dimension sizes provided is less than \
+            if len(hidden_dim) > 1:
+                print "Number of LSTM hidden dimension sizes provided is less than \
 the number of LSTM layers; inferring additional dimensions from the \
 first.\n"
             hidden_dim = hidden_dim * nlayers
         layerparam['num_output'] = hidden_dim
         lstm_weight_fill = layerparam.pop('lstm_weight_fill')
         if len(lstm_weight_fill) < nlayers:
-            print "Warning: fewer weight fill classes provided than LSTM layers; \
+            if len(lstm_weight_fill) > 1:
+                print "Warning: fewer weight fill classes provided than LSTM layers; \
 replicating first specified for all layers.\n"
             lstm_weight_fill = lstm_weight_fill * nlayers
         for i in range(nlayers):
@@ -171,7 +189,7 @@ replicating first specified for all layers.\n"
     reshape_param = {}
     for output in [('label', 2), ('predaff', 1)]:
         #inner product, then prediction, loss, and propagated label for TEST phase
-        if not outparam[output[0]]:
+        if output[0] not in outparam:
             continue
         layerparam['num_output'] = output[1]
         layerparam['weight_filler'] = {'type': 'xavier'} #don't get a choice...for now
@@ -205,10 +223,11 @@ if __name__ == '__main__':
     #MolGridDataLayer options
     molgrid = parser.add_argument_group('MolGridData')
 
-    molgrid.add_argument('-aff', '--affinity', default=True,
+    molgrid.add_argument('-aff', '--affinity', default=False, action =
+            'store_true',
             help='Indicate whether input data has affinity.')
 
-    molgrid.add_argument('-lab', '--label', default=True,
+    molgrid.add_argument('-lab', '--label', default=False, action= 'store_true', 
             help='Indicate whether input data has label.')
 
     molgrid.add_argument('-bs', '--batch_size', default=32, help='MolGrid batch \
