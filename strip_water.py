@@ -1,66 +1,72 @@
 #!/usr/bin/env python
 import argparse, os
-import pdb_util as util
-#openbabel segfaults on these examples with water boxes; rdkit seems impossibly
-#slow; and biopython spuriously complains about repeated residues for the waters
+import prody
+import numpy as np
 
-def get_moldata(line):
-    mol_data = {}
-    for i,field in enumerate(util.pdb_fieldnames):
-        if i in util.pdb_floatfields:
-            field_info = float(line[i]) if line[i].strip() else line[i]
-        elif i in util.pdb_intfields:
-            field_info = int(line[i]) if line[i].strip() else line[i]
-        else:
-            field_info = line[i] 
-        mol_data[field] = field_info
-    return mol_data
+def protein_align(mobile, static, hetname):
+    """
+    Align proteins with prody; use a specific chain if necessary and return
+    which chain you used, too
+    """
+    mobile = prody.parsePDB(mobile)
+    #see if the desired hetatm residue exists for multiple chains
+    chains = np.unique(mobile.select('resname %s' %hetname).getChids())
+    if not chains.size:
+        print "No chain associated with hetname in ref; attempting to proceed \
+        but there may be issues."
+    mobile = mobile.select('chain %s ' %chains[0])
+    try:
+        rmatch, tmatch, seqid, overlap = prody.matchChains(static, mobile,
+                pwalign=True, overlap=70)[0]
+        moved, transformation = prody.superpose(tmatch, rmatch)
+        return mobile,chains[0]
+    except:
+        print "Failed to match %s, continuing...\n" %pdb
+        return prody.parsePDB(pdb),chains[0]
 
-def write_line(rec_contents, lig_coords, parse, distance):
-    if "TER" in line:
-        return False
-    closest_dist = 1000
-    for coord in lig_coords:
-        dist = ((coord['x'] - rec_contents['x'])**2 + (coord['y'] -
-            rec_contents['y'])**2 + (coord['z'] - rec_contents['z'])**2)**0.5
-        if dist < closest_dist: closest_dist = dist
-    return closest_dist <= distance
+def is_close(coord1, coord2, threshold):
+    return ((coord1[0] - coord2[0])**2 + (coord1[1] - coord2[1])**2 +
+            (coord1[2] - coord2[2])**2)**0.5 < threshold
 
 parser = argparse.ArgumentParser(description="Strip water from traj frame based on reference.")
 
 parser.add_argument('-t', '--traj', help='Trajectory frame to strip water from.')
-parser.add_argument('-r', '--ref', help='Reference to define the stripping distance.')
+parser.add_argument('-r', '--ref', help='Reference structure consisting of \
+        receptor and reference small molecule.')
 parser.add_argument('-d', '--distance', type=float, help='Distance threshold for stripping water.')
+parser.add_argument('-het', '--hetname', help='Name of small molecule residue to \
+        define the stripping distance.')
 
 args = parser.parse_args()
-parse = util.make_parser(util.pdb_fieldwidths)
 
-rec = open(args.traj, 'r')
-lig = open(args.ref, 'r')
 outname = os.path.splitext(args.traj)[0] + '_stripwat.pdb'
-out = open(outname, 'w')
-lig_coords = []
-for line in lig:
-    if not "ATOM" in line and not "HETATM" in line:
-        continue
-    lig_contents = get_moldata(parse(line))
-    lig_coords.append({'x': lig_contents['x'], 'y': lig_contents['y'], 'z':
-        lig_contents['z']})
+#align complex to trajectory frame
+static = prody.parsePDB(args.traj)
+aligned_complex,chain = protein_align(args.ref, static, args.hetname)
+# prody.writePDB('aligned_mobile.pdb', aligned_complex)
 
-kept_waters = [] #list of water resnums we've decided to keep
-for line in rec: 
-    if "Cl-" in line or "Na+" in line: #remove counterions
+#use hetname coords to define threshold for water retention
+lig = aligned_complex.select('resname %s and chain %s' %(args.hetname, chain))
+# prody.writePDB('aligned_lig.pdb', lig)
+
+kept_res = [] #list of resnums to keep
+for traj_atom in static.iterAtoms():
+    resnum = traj_atom.getResnum()
+    if resnum in kept_res:
         continue
-    if not "WAT" in line: #don't touch anything but waters
-        out.write(line)
+    resname = traj_atom.getResname()
+    if resname == 'Cl-' or resname == 'Na+': #remove counterions
+        continue 
+    if resname != 'WAT' and resname != 'HOH':
+        kept_res.append(resnum) #don't touch anything else except waters
     else:
-        contents = get_moldata(parse(line))
-        if contents['resnum'] in kept_waters:
-            out.write(line)
-        elif write_line(contents, lig_coords, parse, args.distance):
-            kept_waters.append(contents['resnum'])
-            out.write(line)
-
-rec.close()
-lig.close()
-out.close()
+        traj_coord = traj_atom.getCoords()
+        for lig_coord in lig.getCoords():
+            if is_close(traj_coord, lig_coord, args.distance):
+                kept_res.append(traj_atom.getResnum())
+                continue
+print kept_res
+refstring = ''.join(['resnum {} or ' if idx<len(kept_res)-1 else 'resnum {}' for
+    idx,item in enumerate(kept_res)])
+stripped = static.select(refstring.format(*kept_res))
+prody.writePDB(outname, stripped)
