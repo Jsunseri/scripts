@@ -24,10 +24,6 @@ def protein_align(mobile, static, hetname):
         print "Failed to match %s, continuing...\n" %pdb
         return prody.parsePDB(pdb),chains[0]
 
-def is_close(coord1, coord2, threshold):
-    return ((coord1[0] - coord2[0])**2 + (coord1[1] - coord2[1])**2 +
-            (coord1[2] - coord2[2])**2)**0.5 < threshold
-
 parser = argparse.ArgumentParser(description="Strip water from traj frame based on reference.")
 
 parser.add_argument('-t', '--traj', help='Trajectory frame to strip water from.')
@@ -49,24 +45,6 @@ aligned_complex,chain = protein_align(args.ref, static, args.hetname)
 lig = aligned_complex.select('resname %s and chain %s' %(args.hetname, chain))
 # prody.writePDB('aligned_lig.pdb', lig)
 
-kept_res = [] #list of resnums to keep
-for traj_atom in static.iterAtoms():
-    resnum = traj_atom.getResnum()
-    if resnum in kept_res:
-        continue
-    resname = traj_atom.getResname()
-    if resname == 'Cl-' or resname == 'Na+': #remove counterions
-        continue 
-    if resname != 'WAT' and resname != 'HOH':
-        kept_res.append(resnum) #don't touch anything else except waters
-    else:
-        traj_coord = traj_atom.getCoords()
-        for lig_coord in lig.getCoords():
-            if is_close(traj_coord, lig_coord, args.distance):
-                kept_res.append(traj_atom.getResnum())
-                continue
-print kept_res
-refstring = ''.join(['resnum {} or ' if idx<len(kept_res)-1 else 'resnum {}' for
-    idx,item in enumerate(kept_res)])
-stripped = static.select(refstring.format(*kept_res))
+stripped = static.select('water within %f of lig or protein' %(args.distance),
+        lig=lig)
 prody.writePDB(outname, stripped)
