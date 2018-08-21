@@ -1,28 +1,11 @@
 #!/usr/bin/env python
 import argparse, os
-import prody
-import numpy as np
 
-def protein_align(mobile, static, hetname):
-    """
-    Align proteins with prody; use a specific chain if necessary and return
-    which chain you used, too
-    """
-    mobile = prody.parsePDB(mobile)
-    #see if the desired hetatm residue exists for multiple chains
-    chains = np.unique(mobile.select('resname %s' %hetname).getChids())
-    if not chains.size:
-        print "No chain associated with hetname in ref; attempting to proceed \
-        but there may be issues."
-    mobile = mobile.select('chain %s ' %chains[0])
-    try:
-        rmatch, tmatch, seqid, overlap = prody.matchChains(static, mobile,
-                pwalign=True, overlap=70)[0]
-        moved, transformation = prody.superpose(tmatch, rmatch)
-        return mobile,chains[0]
-    except:
-        print "Failed to match %s, continuing...\n" %pdb
-        return prody.parsePDB(pdb),chains[0]
+import __main__
+__main__.pymol_argv = ['pymol','-qc'] # Pymol: quiet and no GUI
+from time import sleep
+import pymol
+pymol.finish_launching()
 
 parser = argparse.ArgumentParser(description="Strip water from traj frame based on reference.")
 
@@ -37,14 +20,14 @@ args = parser.parse_args()
 
 outname = os.path.splitext(args.traj)[0] + '_stripwat.pdb'
 #align complex to trajectory frame
-static = prody.parsePDB(args.traj)
-aligned_complex,chain = protein_align(args.ref, static, args.hetname)
-# prody.writePDB('aligned_mobile.pdb', aligned_complex)
+mobile = os.path.splitext(os.path.basename(args.traj))[0]
+static = os.path.splitext(os.path.basename(args.ref))[0]
+pymol.cmd.load(args.traj, mobile)
+pymol.cmd.load(args.ref, static)
+pymol.cmd.select('nowat', '%s and polymer' %mobile)
+pymol.cmd.align('nowat', static, object='align')
+pymol.cmd.select('lig', '%s and resn %s' %(static, args.hetname))
 
-#use hetname coords to define threshold for water retention
-lig = aligned_complex.select('resname %s and chain %s' %(args.hetname, chain))
-# prody.writePDB('aligned_lig.pdb', lig)
-
-stripped = static.select('water within %f of lig or protein' %(args.distance),
-        lig=lig)
-prody.writePDB(outname, stripped)
+pymol.cmd.select('strip', '(%s and polymer) or (%s and resn WAT within %f of \
+        lig)' %(mobile, mobile, args.distance))
+pymol.cmd.save(outname, 'strip')
