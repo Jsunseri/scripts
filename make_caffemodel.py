@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import json
 from layer import layer
 
 activation_types = ['ELU', 'ReLU', 'PReLU', 'Sigmoid', 'TanH', 'Power', 'Exp',
@@ -69,7 +70,7 @@ def add_layer_of_type(type, layerparam, layers):
         i = len(layers)-1
         while i >=0:
             last_type = layers[i].get_type()
-            if last_type in activation_types or type == "Convolution" or type == "LSTM":
+            if last_type in activation_types or last_type == "Convolution" or last_type == "LSTM":
                 bottom = layers[i].get_top()
                 break
             i -= 1
@@ -179,10 +180,11 @@ first.\n"
             if len(lstm_weight_fill) > 1:
                 print "Warning: fewer weight fill classes provided than LSTM layers; \
 replicating first specified for all layers.\n"
-            lstm_weight_fill = lstm_weight_fill * nlayers
+            lstm_weight_fill = [lstm_weight_fill for lstm_weight_fill in
+                    range(nlayers)]
         for i in range(nlayers):
             layerparam['num_output'] = hidden_dim[i]
-            layerparam['weight_filler'] = {'type': lstm_weight_fill[i]}
+            layerparam['weight_filler'] = lstm_weight_fill[i]
             add_layer_of_type('LSTM', {"LSTM": layerparam}, layers)
 
     #now output layer(s)
@@ -291,8 +293,8 @@ if __name__ == '__main__':
     dimension; default=1000.')
 
     lstm.add_argument('-lstm_wf', '--lstm_weight_fill', nargs='*',
-            default=['xavier'], help='LSTM layer weight filler type; \
-    default=xavier.')
+            default={'type': 'xavier'}, help='LSTM layer weight filler type; \
+    default=xavier.', type=json.loads) 
 
     args = parser.parse_args()
     #parse into layer-specific dicts
