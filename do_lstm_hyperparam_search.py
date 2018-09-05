@@ -48,8 +48,8 @@ layerspec['MolGridData']['label'] = True
 hidden_dim_ = 2 * np.logspace(1, 3)
 n_cnn_layers_ = range(6)
 n_cnn_filters_ = [32, 64]
-learning_rate_ = np.logspace(-6, -1)
-momentum_ = 1 - np.logspace(-2, 0)
+learning_rate_ = [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1] 
+momentum_ = 1 - np.array([1e-2, 1e-1, 1])
 weight_init_ = ['constant', 'uniform', 'gaussian', 'xavier', 'positive_unitball']
 constant_weight = [0.5, 0.75, 1]
 gaussian_weight = np.linspace(0, 1)
@@ -119,7 +119,6 @@ for i in range(args.num_models):
     #make job script
     learning_rate = np.random.choice(learning_rate_)
     momentum = np.random.choice(momentum_)
-    activation_function = np.random.choice(activation_function_)
     with open(outname + '.pbs', 'w') as f:
         f.write('#!/bin/bash\n')
         f.write('#PBS -N %s\n' %outname)
@@ -147,6 +146,7 @@ for i in range(args.num_models):
         f.write('export PYTHONPATH=/net/pulsar/home/koes/jss97/git/gnina/caffe/python:$PYTHONPATH\n')
         f.write('\n')
         f.write('trap "cp * $PBS_O_WORKDIR" EXIT\n')
-        f.write('train.py -m %s.model -p %s -o %s %s &> %s.out\n' %(outname,
-            args.prefix, outname, ' '.join(args.trainargs), outname))
+        f.write('train.py -m %s.model -p %s --base_lr %s --momentum %s -o %s %s &> %s.out\n' 
+                %(outname, args.prefix, learning_rate, momentum, 
+                    outname, ' '.join(args.trainargs), outname))
         f.write('exit')
