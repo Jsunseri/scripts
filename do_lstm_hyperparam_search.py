@@ -84,7 +84,7 @@ for i in range(args.num_models):
     #at _least_ 23.5, but choose something evenly divisible even though it
     #shouldn't actually be necessary
     dimension = 23.5
-    factor = round((dimension - subgrid_dim) / (subgrid_dim + resolution))
+    factor = ceil((dimension - subgrid_dim) / (subgrid_dim + resolution))
     layerspec['MolGridData']['dimension'] = factor * (subgrid_dim + resolution) + subgrid_dim
 
     layerspec['LSTM'] = {}
