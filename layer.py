@@ -1,5 +1,6 @@
 #!/usr/bin/python
 from copy import deepcopy
+import traceback
 
 class layer:
     '''
@@ -18,6 +19,10 @@ class layer:
     def __init__(self, type = '', params={}, top=[], bottom=[], name = '', phase=''):
         self.name = name
         self.type = type
+        if type == 'MolGridData':
+            #reset count when we start a new model
+            for key in self.layer_count.keys():
+                self.layer_count.pop(key)
         if self.type not in self.layer_count:
             self.layer_count[self.type] = 0
         self.layer_count[self.type] += 1
@@ -34,13 +39,13 @@ class layer:
         self.top.append(top)
 
     def get_top(self):
-        return self.top
+        return deepcopy(self.top)
 
     def add_bottom(self, bottom):
         self.bottom.append(bottom)
 
     def get_bottom(self):
-        return self.bottom
+        return deepcopy(self.bottom)
 
     def add_param(self, param):
         self.params.update(param)
@@ -104,8 +109,12 @@ class layer:
                             paramname, value))
                     else:
                         if isinstance(value, str):
-                            ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
-                                paramname, value))
+                            if paramname == "variance_norm":
+                                ofile.write('{}{}: {}\n'.format((nspaces +2)* ' ', 
+                                    paramname, value))
+                            else:
+                                ofile.write('{}{}: "{}"\n'.format((nspaces +2)* ' ', 
+                                    paramname, value))
                         elif isinstance(value, bool):
                             ofile.write('{}{}: {}\n'.format((nspaces +2)* ' ', 
                                 paramname, str(value).lower()))

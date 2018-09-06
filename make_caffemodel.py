@@ -30,6 +30,7 @@ def add_layer_of_type(type, layerparam, layers):
         lab = params.pop('label')
         if lab: 
             top.append('label')
+        stratrec = params.pop("stratify_receptor")
         params['root_folder'] = "DATA_ROOT"
         if not params['ligmap']:
             params.pop('ligmap')
@@ -40,11 +41,13 @@ def add_layer_of_type(type, layerparam, layers):
             if phase == "TEST":
                 params["shuffle"] = False
                 params["balanced"] = False
+                params["stratify_receptor"] = False
             else:
                 params["shuffle"] = True
                 params["balanced"] = True
                 params["random_rotation"] = True
                 params["random_translate"] = 2
+                params["stratify_receptor"] = stratrec
             layers.append(layer(type, layerparam, top, [], name, phase))
         if lab:
             params['label'] = True
@@ -56,6 +59,8 @@ def add_layer_of_type(type, layerparam, layers):
         if len(bottom) > 1:
             assert "data" in bottom, "Input layer must create a data blob."
             bottom = ["data"]
+        if type == "LSTM":
+            bottom.append("seqcont")
         layers.append(layer(type, layerparam, [], bottom))
 
     if type in activation_types:
@@ -80,13 +85,13 @@ def add_layer_of_type(type, layerparam, layers):
         #must be predicted label
         bottom = ['output_fc']
         name = 'output'
-        layers.append(layer(type, {}, [], bottom, name))
+        layers.append(layer(type, layerparam, [], bottom, name))
 
     if type == 'SoftmaxWithLoss':
         name = 'loss'
         bottom = ['output_fc', 'label']
         top = ['loss']
-        layers.append(layer(type, {}, top, bottom, name))
+        layers.append(layer(type, layerparam, top, bottom, name))
 
     if type == "AffinityLoss":
         name = "rmsd"
@@ -110,6 +115,7 @@ def make_model(layerspec):
     '''
     layers = []
     pooling_param = {'pool': 'MAX', 'kernel_size': 2, 'stride': 2}
+    has_lstm = layerspec['LSTM']['n_lstm_layers'] > 0
     #start with MolGridDataLayer
     #make two layer objects, one each for train and test phase
     layerparam = layerspec['MolGridData']
@@ -155,7 +161,9 @@ replicating first specified for all layers.\n"
             layerparam['pad'] = pad[i]
             layerparam['kernel_size'] = kernel_size[i]
             layerparam['num_output'] = nfilters[i]
-            layerparam['weight_filler'] = {'type': cnn_weight_fill[i]}
+            if has_lstm:
+                layerparam['axis'] = 2
+            layerparam['weight_filler'] = cnn_weight_fill[i]
             add_layer_of_type('Convolution', {"Convolution": layerparam}, layers)
             add_layer_of_type(activation[i], {}, layers)
             add_layer_of_type('Pooling', {"Pooling" : pooling_param}, layers)
@@ -191,16 +199,24 @@ replicating first specified for all layers.\n"
     outparam = layerspec['MolGridData']
     layerparam = {}
     reshape_param = {}
+    loss_param = {}
     for output in [('label', 2), ('predaff', 1)]:
         #inner product, then prediction, loss, and propagated label for TEST phase
         if output[0] not in outparam:
             continue
         layerparam['num_output'] = output[1]
         layerparam['weight_filler'] = {'type': 'xavier'} #don't get a choice...for now
+        if has_lstm:
+            layerparam['axis'] = 2
         add_layer_of_type('InnerProduct', {"InnerProduct": layerparam}, layers)
         if output[0] == "label":
-            add_layer_of_type('Softmax', {}, layers)
-            add_layer_of_type('SoftmaxWithLoss', {}, layers)
+            layerparam = {}
+            if has_lstm:
+                layerparam['axis'] = 2
+            loss_param["ignore_label"] = -1 #TODO: allow customization?
+            add_layer_of_type('Softmax', {"Softmax": layerparam}, layers)
+            add_layer_of_type('SoftmaxWithLoss', {"Softmax": layerparam,
+                "Loss": loss_param}, layers)
             reshape_param['Reshape'] = {'shape': {'dim': (0,-1)},
                     'name': 'labelout', 'bottom': 'label', 'phase': 'TEST'}
         else:
@@ -249,6 +265,10 @@ if __name__ == '__main__':
     molgrid.add_argument('--ligmap', default='', help='Custom ligmap.')
 
     molgrid.add_argument('--recmap', default='', help='Custom recmap.')
+
+    molgrid.add_argument('-stratrec', '--stratify_receptor', default=False,
+            action='store_true', help='Stratify by receptor when producing \
+    examples during training.')
 
     #CNN layer options
     cnn = parser.add_argument_group('Convolution')

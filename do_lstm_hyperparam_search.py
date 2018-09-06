@@ -34,6 +34,8 @@ parser.add_argument('-lmap', '--ligmap', default='', help='Location of \
 desired nonstandard ligmap file.')
 parser.add_argument('-rmap', '--recmap', default='', help='Location of \
 desired nonstandard recmap file.')
+parser.add_argument('-stratrec', '--stratify_receptor', default=False,
+        action='store_true', help='Stratify by receptor when training.')
 parser.add_argument('-p', '--prefix', default='', help='.types file prefix.')
 parser.add_argument('--trainargs', required=False, nargs='+', help='Any \
 additional arguments you want to pass through to the train.py script.')
@@ -78,6 +80,7 @@ for i in range(args.num_models):
     layerspec['MolGridData']['resolution'] = resolution
     layerspec['MolGridData']['recmap'] = args.recmap
     layerspec['MolGridData']['ligmap'] = args.ligmap
+    layerspec['MolGridData']['stratify_receptor'] = args.stratify_receptor
     #at _least_ 23.5, but choose something evenly divisible even though it
     #shouldn't actually be necessary
     dimension = 23.5
