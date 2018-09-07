@@ -16,6 +16,7 @@
 from make_caffemodel import make_model
 import numpy as np
 import argparse
+import math
 
 parser = argparse.ArgumentParser(description="Generate model prototxt and job \
 script for LSTM random hyperparameter optimization.")
@@ -81,10 +82,10 @@ for i in range(args.num_models):
     layerspec['MolGridData']['recmap'] = args.recmap
     layerspec['MolGridData']['ligmap'] = args.ligmap
     layerspec['MolGridData']['stratify_receptor'] = args.stratify_receptor
-    #at _least_ 23.5, but choose something evenly divisible even though it
+    #close to 23.5, but choose something evenly divisible even though it
     #shouldn't actually be necessary
     dimension = 23.5
-    factor = ceil((dimension - subgrid_dim) / (subgrid_dim + resolution))
+    factor = round((dimension - subgrid_dim) / (subgrid_dim + resolution))
     layerspec['MolGridData']['dimension'] = factor * (subgrid_dim + resolution) + subgrid_dim
 
     layerspec['LSTM'] = {}

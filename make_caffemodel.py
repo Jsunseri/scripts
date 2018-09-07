@@ -116,6 +116,8 @@ def make_model(layerspec):
     layers = []
     pooling_param = {'pool': 'MAX', 'kernel_size': 2, 'stride': 2}
     has_lstm = layerspec['LSTM']['n_lstm_layers'] > 0
+    if has_lstm:
+        pooling_param['axis'] = 2
     #start with MolGridDataLayer
     #make two layer objects, one each for train and test phase
     layerparam = layerspec['MolGridData']
