@@ -18,6 +18,8 @@ import numpy as np
 import argparse
 import math
 
+INT_MAX = 2147483647
+
 parser = argparse.ArgumentParser(description="Generate model prototxt and job \
 script for LSTM random hyperparameter optimization.")
 
@@ -75,19 +77,37 @@ for i in range(args.num_models):
     if args.label:
         layerspec['MolGridData']['label'] = True
 
-    layerspec['MolGridData']['batch_size'] = np.random.choice(batch_size_)
-    subgrid_dim = np.random.choice(subgrid_dim_)
-    layerspec['MolGridData']['subgrid_dim'] = subgrid_dim
-    resolution = np.random.choice(resolution_)
-    layerspec['MolGridData']['resolution'] = resolution
-    layerspec['MolGridData']['recmap'] = args.recmap
-    layerspec['MolGridData']['ligmap'] = args.ligmap
-    layerspec['MolGridData']['stratify_receptor'] = args.stratify_receptor
-    #close to 23.5, but choose something evenly divisible even though it
-    #shouldn't actually be necessary
-    dimension = 23.5
-    factor = round((dimension - subgrid_dim) / (subgrid_dim + resolution))
-    layerspec['MolGridData']['dimension'] = factor * (subgrid_dim + resolution) + subgrid_dim
+    finished = False
+    while not finished:
+        batch_size = np.random.choice(batch_size_)
+        layerspec['MolGridData']['batch_size'] = batch_size
+        subgrid_dim = np.random.choice(subgrid_dim_)
+        layerspec['MolGridData']['subgrid_dim'] = subgrid_dim
+        resolution = np.random.choice(resolution_)
+        layerspec['MolGridData']['resolution'] = resolution
+        layerspec['MolGridData']['recmap'] = args.recmap
+        layerspec['MolGridData']['ligmap'] = args.ligmap
+        layerspec['MolGridData']['stratify_receptor'] = args.stratify_receptor
+        #close to 23.5, but choose something evenly divisible even though it
+        #shouldn't actually be necessary
+        dimension = 23.5
+        factor = round((dimension - subgrid_dim) / (subgrid_dim + resolution))
+        dimension = factor * (subgrid_dim + resolution) + subgrid_dim
+        layerspec['MolGridData']['dimension'] = dimension
+
+        #check whether the data blob dims exceed INT_MAX; if so, try to ameliorate
+        #by shrinking the batch size. if that fails, for now throw up your hands and
+        #try again with a clean slate
+        ntimesteps = ((dimension - subgrid_dim) / (subgrid_dim + resolution) + 1)**3
+        cubedim = (subgrid_dim / resolution) + 1
+        #T x B x nchannels x cubedim x cubedim x cubedim
+        if (ntimesteps * batch_size * 35 * cubedim**3) > INT_MAX:
+            batch_size = int(math.floor(INT_MAX / (ntimesteps * 35 * cubedim**3)))
+            if batch_size > 0:
+                layerspec['MolGridData']['batch_size'] = batch_size
+                finished = True
+        else:
+            finished = True
 
     layerspec['LSTM'] = {}
     layerspec['LSTM']['hidden_dim']= [np.random.choice(hidden_dim_)]
