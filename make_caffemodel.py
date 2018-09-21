@@ -146,6 +146,7 @@ from the first.\n"
         if len(kernel_size) < nlayers:
             kernel_size = kernel_size * nlayers
         activation = layerparam.pop('activation')
+        activation_param_args = layerparam.pop('activation_param')
         if len(activation) < nlayers:
             if len(activation) > 1:
                 print "Warning: fewer activation classes provided than conv layers; \
@@ -159,6 +160,10 @@ replicating first specified for all layers.\n"
             cnn_weight_fill = cnn_weight_fill * nlayers
 
         for i in range(nlayers):
+            if activation_param_args.values():
+                activation_param = {activation[i]: activation_param_args}
+            else:
+                activation_param = {}
             layerparam['stride'] = stride[i]
             layerparam['pad'] = pad[i]
             layerparam['kernel_size'] = kernel_size[i]
@@ -167,7 +172,7 @@ replicating first specified for all layers.\n"
                 layerparam['axis'] = 2
             layerparam['weight_filler'] = cnn_weight_fill[i]
             add_layer_of_type('Convolution', {"Convolution": layerparam}, layers)
-            add_layer_of_type(activation[i], {}, layers)
+            add_layer_of_type(activation[i], activation_param, layers)
             add_layer_of_type('Pooling', {"Pooling" : pooling_param}, layers)
 
     #now check whether we have lstm layers and how many
@@ -304,6 +309,9 @@ if __name__ == '__main__':
 
     cnn.add_argument('-act', '--activation', nargs='*', default=['ELU'],
             help='CNN activation function; default=ELU.')
+
+    cnn.add_argument('-aparam', '--activation_param', type=json.loads, 
+            default={}, help='CNN activation function parameters, e.g. negative slope for leaky ReLU.')
 
     #LSTM layer options
     lstm = parser.add_argument_group('LSTM')

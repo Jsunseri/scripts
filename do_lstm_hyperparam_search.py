@@ -61,6 +61,7 @@ batch_size_ = [10, 32, 64, 128]
 subgrid_dim_ = [6, 8, 10, 12]
 resolution_ = [0.25, 0.5, 0.75]
 activation_function_ = ['ELU', 'ReLU']
+negative_slope_ = [.01, 0]
 
 for i in range(args.num_models):
     outname = args.output_prefix + '_' + str(i)
@@ -113,8 +114,12 @@ for i in range(args.num_models):
     layerspec['Convolution']['stride'] = [1]
     layerspec['Convolution']['pad'] = [1]
     layerspec['Convolution']['kernel_size'] = [3]
-    layerspec['Convolution']['activation'] = np.random.choice(activation_function_)
     layerspec['Convolution']['cnn_weight_fill'] = [{'type' : 'xavier'}]
+    activation_function = np.random.choice(activation_function_)
+    layerspec['Convolution']['activation'] = [activation_function]
+    layerspec['Convolution']['activation_param'] = {}
+    if activation_function == "ReLU":
+        layerspec['Convolution']['activation_param']['negative_slope'] = np.random.choice(negative_slope_)
 
     layerspec['general'] = {}
     layerspec['general']['output'] = outname + '.model'
