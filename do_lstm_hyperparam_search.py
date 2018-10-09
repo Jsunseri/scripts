@@ -31,8 +31,6 @@ parser.add_argument('-o', '--output_prefix', default='lstm', help='Prefix for \
 .model file and job script (default="lstm").')
 parser.add_argument('-aff', '--affinity', default=False, action='store_true',
         help='Indicate that input data has affinity.')
-parser.add_argument('-lab', '--label', default=False, action='store_true',
-        help='Indicate that input data has a class label.')
 parser.add_argument('-lmap', '--ligmap', default='', help='Location of \
 desired nonstandard ligmap file.')
 parser.add_argument('-rmap', '--recmap', default='', help='Location of \
@@ -42,12 +40,9 @@ parser.add_argument('-stratrec', '--stratify_receptor', default=False,
 parser.add_argument('-p', '--prefix', default='', help='.types file prefix.')
 parser.add_argument('--trainargs', required=False, nargs='+', help='Any \
 additional arguments you want to pass through to the train.py script.')
+parser.add_argument('-bal', '--balanced', default=True, action= 'store_true', 
+help='Indicate whether to balance examples from different classes.')
 args = parser.parse_args()
-
-layerspec = {}
-layerspec['MolGridData'] = {}
-layerspec['MolGridData']['affinity'] = False
-layerspec['MolGridData']['label'] = True
 
 #TODO: loss?
 hidden_dim_ = 2 * np.logspace(1, 3)
@@ -70,12 +65,8 @@ for i in range(args.num_models):
     #make .model file
     layerspec = {}
     layerspec['MolGridData'] = {}
-    layerspec['MolGridData']['affinity'] = False
-    layerspec['MolGridData']['label'] = False
-    if args.affinity:
-        layerspec['MolGridData']['affinity'] = True
-    if args.label:
-        layerspec['MolGridData']['label'] = True
+    layerspec['MolGridData']['affinity'] = args.affinity
+    layerspec['MolGridData']['balanced'] = args.balanced
 
     finished = False
     while not finished:
