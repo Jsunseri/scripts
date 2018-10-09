@@ -19,38 +19,34 @@ def add_layer_of_type(type, layerparam, layers):
         pass
 
     if type == 'MolGridData':
-        assert params['affinity'] or params['label'], \
-        "Must have at least one of affinity and label."
         name = "data"
         top = ['data']
+        top.append('label')
         aff = params.pop('affinity')
         if aff: 
             top.append('affinity')
             params['has_affinity'] = True
-        lab = params.pop('label')
-        if lab: 
-            top.append('label')
-        stratrec = params.pop("stratify_receptor")
+        if not params['subgrid_dim']:
+            params.pop("subgrid_dim")
         params['root_folder'] = "DATA_ROOT"
         if not params['ligmap']:
             params.pop('ligmap')
         if not params['recmap']:
             params.pop('recmap')
-        for phase in ["TEST", "TRAIN"]:
+        for phase in ["TRAIN", "TEST"]:
             params['source'] = '%sFILE' %phase
-            if phase == "TEST":
+            if phase == "TRAIN":
+                params["shuffle"] = True
+                params["random_rotation"] = True
+                params["random_translate"] = 2
+            else:
                 params["shuffle"] = False
                 params["balanced"] = False
                 params["stratify_receptor"] = False
-            else:
-                params["shuffle"] = True
-                params["balanced"] = True
-                params["random_rotation"] = True
-                params["random_translate"] = 2
-                params["stratify_receptor"] = stratrec
+                params.pop("random_rotation")
+                params.pop("random_translate")
             layers.append(layer(type, layerparam, top, [], name, phase))
-        if lab:
-            params['label'] = True
+        params['label'] = True
         if aff:
             params['predaff'] = True
 
@@ -233,7 +229,7 @@ replicating first specified for all layers.\n"
             affinity_loss_param = {'affinity_loss': {'scale': 0.1}}
             add_layer_of_type('AffinityLoss', affinity_loss_param, layers)
             reshape_param['Reshape'] = {'shape': {'dim': (0,-1)},
-                    'name': 'affout', 'bottom': 'affout', 'phase': 'TEST'}
+                    'name': 'affout', 'bottom': 'affinity', 'phase': 'TEST'}
         add_layer_of_type('Reshape', reshape_param, layers)
 
     ofile = open(layerspec['general']['output'], 'w')
@@ -254,19 +250,16 @@ if __name__ == '__main__':
             'store_true',
             help='Indicate whether input data has affinity.')
 
-    molgrid.add_argument('-lab', '--label', default=False, action= 'store_true', 
-            help='Indicate whether input data has label.')
-
-    molgrid.add_argument('-bs', '--batch_size', default=32, help='MolGrid batch \
+    molgrid.add_argument('-bs', '--batch_size', default=32, type=int, help='MolGrid batch \
     size.')
 
-    molgrid.add_argument('-d', '--dimension', default=23.5, help='Total grid \
+    molgrid.add_argument('-d', '--dimension', default=23.5, type=float, help='Total grid \
     dimension.')
 
-    molgrid.add_argument('-r', '--resolution', default=0.5, help='Grid \
+    molgrid.add_argument('-r', '--resolution', default=0.5, type=float, help='Grid \
     resolution.')
 
-    molgrid.add_argument('-sd', '--subgrid_dim', default=0, help='Subgrid \
+    molgrid.add_argument('-sd', '--subgrid_dim', default=0, type=float, help='Subgrid \
     dimension for cubic recurrence. Default is 0 (no recurrence).')
     
     molgrid.add_argument('--ligmap', default='', help='Custom ligmap.')
@@ -276,6 +269,9 @@ if __name__ == '__main__':
     molgrid.add_argument('-stratrec', '--stratify_receptor', default=False,
             action='store_true', help='Stratify by receptor when producing \
     examples during training.')
+
+    molgrid.add_argument('-bal', '--balanced', default=False, action= 'store_true', 
+            help='Indicate whether to balance examples from different classes.')
 
     #CNN layer options
     cnn = parser.add_argument_group('Convolution')
@@ -289,7 +285,7 @@ if __name__ == '__main__':
     layers. If none provided, base=32.')
 
     cnn.add_argument('-cnn_wf', '--cnn_weight_fill', nargs='*',
-            default=['xavier'],
+            default=[{'type' : 'xavier'}], type=json.loads, 
             help='Conv layer weight filler type; default=xavier.')
 
     cnn.add_argument('-kp', '--pad', nargs='*', default=[1], help='Kernel pad for \
@@ -302,8 +298,8 @@ if __name__ == '__main__':
     otherwise give a list equal to the number of layers. Default is \
     3.')
 
-    cnn.add_argument('-kstr', '--stride', nargs='*', default=[1], help='Kernel stride for \
-    conv layers; if one value provided it is duplicated for all layers, \
+    cnn.add_argument('-kstr', '--stride', nargs='*', type=int, default=[1], 
+    help='Kernel stride for conv layers; if one value provided it is duplicated for all layers, \
     otherwise give a list equal to the number of layers. Default is \
     1.')
 
@@ -319,8 +315,8 @@ if __name__ == '__main__':
     lstm.add_argument('-lstm', '--n_lstm_layers', default=0, help='Number of \
     input LSTM layers; default=0.')
 
-    lstm.add_argument('-hd', '--hidden_dim', nargs='*', default=[1000], help='Hidden unit \
-    dimension; default=1000.')
+    lstm.add_argument('-hd', '--hidden_dim', nargs='*', type=int, default=[1000], 
+    help='Hidden unit dimension; default=1000.')
 
     lstm.add_argument('-lstm_wf', '--lstm_weight_fill', nargs='*',
             default={'type': 'xavier'}, help='LSTM layer weight filler type; \
