@@ -1,7 +1,10 @@
 #! /usr/bin/env python
 import os,sys,math
 import collections
+from sklearn.utils.fixes import signature
 from sklearn.metrics import roc_curve, roc_auc_score
+from sklearn.metrics import precision_recall_curve
+from sklearn.metrics import average_precision_score
 from argparse import ArgumentParser
 import numpy as np
 import pandas as pd
@@ -46,7 +49,14 @@ purple_triangle = mlines.Line2D([], [], color='purple', marker='^',
         linestyle='None',
                                   markersize=10, label='Purple triangles')
 
-def calc_auc(target_and_method, target_predictions):
+# In matplotlib < 1.5, plt.fill_between does not have a 'step'
+# argument
+step_kwargs = ({'step': 'post'}
+                if 'step' in
+                signature(plt.fill_between).parameters
+                else {})
+
+def calc_auc_and_pr(target_and_method, target_predictions):
 	y_true=[]
 	y_score=[]
 	for i,item in enumerate(target_predictions):
@@ -59,16 +69,19 @@ def calc_auc(target_and_method, target_predictions):
 	        print 'Error: %d %f %s\n'%(label, score, target_and_method[i])
 	        continue
         fpr,tpr,_ = roc_curve(y_true,y_score)
-	return roc_auc_score(y_true,y_score),fpr,tpr
+        precision, recall, _ = precision_recall_curve(y_true, y_score)
+        return {'auc': (roc_auc_score(y_true,y_score),fpr,tpr), 'aupr' :
+                (average_precision_score(y_true, y_score),
+                    precision, recall)}
 
-def mean_auc(data, methods, targets, args):
+def mean_auc(data, methods, targets, noskill, args):
         #use this palette if the methods don't correspond to methods used in
         #any of the old papers, which have associated colors
         backup_palette = sns.color_palette("Set1", n_colors=len(methods), desat=.5)
 
         #overall_auc tracks and reports the average AUC across all targets
         #bytarget tracks and reports the AUC for each target for each method
-        overall_auc = {}
+        overall_stats = {}
         bytarget = {}
         for method in methods:
 	    bytarget[method] = open('%s_%s'%(method,args.outprefix),'w')
@@ -80,70 +93,110 @@ def mean_auc(data, methods, targets, args):
             mpl.rcParams['ytick.labelsize'] = 8
         grid_width = int(math.ceil(math.sqrt(total_plots)))
         grid_length = int(math.ceil(float(total_plots)/grid_width))
-        fig,fig_ax = plt.subplots(figsize=(8,8))
+        auc_fig,auc_ax = plt.subplots(figsize=(8,8))
+        aps_fig,aps_ax = plt.subplots(figsize=(8,8))
 
         #if there is only one output plot, print AUCs on the legend; otherwise
         #make a single shared legend for all plots without AUCs
+        #everything is duplicated for APS now
         legend_dict = {}
+        for output_stat in ['AUC', 'APS']:
+            legend_dict[output_stat] = {}
+            overall_stats[output_stat] = {}
         num_lines = {}
 	for t,l in data.iteritems():
-		auc,fpr,tpr = calc_auc(t,l)
-                bytarget[t[1]].write('%s %.3f\n' %(t[0],auc))
+		summary_stats = calc_auc_and_pr(t,l)
+                auc,fpr,tpr = summary_stats['auc']
+                aps,precision,recall = summary_stats['aupr']
+                bytarget[t[1]].write('%s %.3f %.3f\n' %(t[0],auc,aps))
                 if args.make_boxplot:
                     boxplot_dat.append({'Method' : t[1], 'AUC' : auc, 'Target'
-                        : t[0]})
+                        : t[0], 'APS': aps})
                 plot_num = targets.index(t[0])
-                if t[1] not in overall_auc.keys():
-                    overall_auc[t[1]] = 0
-                overall_auc[t[1]] += float(auc)
-                if plot_num not in legend_dict.keys(): 
+                if t[1] not in overall_stats['AUC']:
+                    overall_stats['AUC'][t[1]] = 0
+                    overall_stats['APS'][t[1]] = 0
+                overall_stats['AUC'][t[1]] += float(auc)
+                overall_stats['APS'][t[1]] += float(aps)
+                if plot_num not in legend_dict['AUC']: 
                     num_lines[plot_num] = 0 
-                    ax = plt.subplot2grid((grid_length,grid_width),
-                            (plot_num / grid_width, plot_num % grid_width))
-                    ax.set_aspect('equal')
-                    for tick in ax.get_xticklabels():
+                    print auc_fig.axes
+                    # print aps_fig.axes
+                    sub_auc_ax = plt.subplot2grid((grid_length,grid_width),
+                            (plot_num / grid_width, plot_num % grid_width),
+                            fig=auc_fig)
+                    # sub_aps_ax = plt.subplot2grid((grid_length,grid_width),
+                            # (plot_num / grid_width, plot_num % grid_width),
+                            # fig=aps_fig)
+                    sub_auc_ax.set_aspect('equal')
+                    for tick in sub_auc_ax.get_xticklabels():
                         tick.set_rotation(-90)
-                    legend_dict[plot_num] = ax
+                    legend_dict['AUC'][plot_num] = sub_auc_ax
+                    # legend_dict['APS'][plot_num] = sub_aps_ax
                 method = t[1]
                 color = paper_palettes[method] if method in paper_palettes else backup_palette[methods.index(method)]
-                label = '%s, AUC=%0.2f' % (t[1], auc) if total_plots == 1 else t[1]
-                legend_dict[plot_num].plot(fpr, tpr, color=color, label=label,
+                auc_label = '%s, AUC=%0.2f' % (t[1], auc) if total_plots == 1 else t[1]
+                aps_label = '%s, APS=%0.2f' % (t[1], aps) if total_plots == 1 else t[1]
+                legend_dict['AUC'][plot_num].plot(fpr, tpr, color=color,
+                        label=auc_label,
                         zorder=2) 
+                # legend_dict['APS'][plot_num].step(recall, precision, color='b', alpha=0.2,
+                                 # where='post')
+                # legend_dict['APS'][plot_num].fill_between(recall, precision, alpha=0.2, color='b',
+                        # **step_kwargs)
+
+                # legend_dict['APS'][plot_num].ylim([0.0, 1.05])
+                # legend_dict['APS'][plot_num].xlim([0.0, 1.0])
+
                 num_lines[plot_num] += 1
                 if int(plot_num) / grid_width == grid_length-1:
-                    legend_dict[plot_num].set_xlabel('False Positive Rate')
+                    legend_dict['AUC'][plot_num].set_xlabel('False Positive Rate')
+                    # legend_dict['APS'][plot_num].set_xlabel('Recall')
                 if plot_num % grid_width == 0:
-                    legend_dict[plot_num].set_ylabel('True Positive Rate')
+                    legend_dict['AUC'][plot_num].set_ylabel('True Positive Rate')
+                    # legend_dict['APS'][plot_num].set_ylabel('Precision')
                 if num_lines[plot_num] == len(methods):
-                    legend_dict[plot_num].set_title('Target %s' % (t[0]))
+                    legend_dict['AUC'][plot_num].set_title('Target %s' % (t[0]))
+                    # legend_dict['APS'][plot_num].set_title('Target %s' % (t[0]))
+                    #add in line showing random performance
+                    legend_dict['AUC'][plot_num].plot([0, 1], [0, 1], color='gray', lw=2,
+                       linestyle='--', zorder=1)
+                    target_noskill = noskill[t[0]][0]/float(noskill[t[0]][1])
+                    # legend_dict['APS'][plot_num].plot([0, 1],
+                            # [target_noskill, target_noskill], color='gray', lw=2,
+                       # linestyle='--', zorder=1)
                     if total_plots == 1:
-                        legend_dict[plot_num].legend(loc='center left',
+                        legend_dict['AUC'][plot_num].legend(loc='center left',
                                 bbox_to_anchor=(1,0.5))
+                        # legend_dict['APS'][plot_num].legend(loc='center left',
+                                # bbox_to_anchor=(1,0.5))
 
         #if we have multiple subplots, make a shared legend; constrain CNN
         #paper order to follow line order
-        handles,labels = legend_dict[0].get_legend_handles_labels()
+        #these papers didn't have PR curves so i'm not touching it for them
+        auc_handles,auc_labels = legend_dict['AUC'][0].get_legend_handles_labels()
+        # aps_handles,aps_labels = legend_dict['APS'][0].get_legend_handles_labels()
         if args.color_scheme == 'cnn':
-            shortlabels = [x.split(',')[0] for x in labels]
+            shortlabels = [x.split(',')[0] for x in auc_labels]
             indices = []
             cnnpaper_order = ['DUD-E', 'Vina', '2:1', 'CSAR']
             for label in cnnpaper_order:
                 indices.append(shortlabels.index(label))
             handles = [handles[i] for i in indices]
-            labels = [labels[i] for i in indices]
-            box = legend_dict[total_plots-2].get_position()
-            fig.legend(handles, labels, loc=(box.x0+0.465, box.y0-0.035), frameon=True)
+            auc_labels = [auc_labels[i] for i in indices]
+            box = legend_dict['AUC'][total_plots-2].get_position()
+            auc_fig.legend(auc_handles, auc_labels, loc=(box.x0+0.465, box.y0-0.035), frameon=True)
         elif args.color_scheme == 'd3r':
             indices = []
             cnnpaper_order = ['CNN Affinity Rescore', 'CNN Affinity Refine',
                     'CNN Scoring Rescore', 'CNN Scoring Refine', 'Vina']
             for label in cnnpaper_order:
-                indices.append(labels.index(label))
-            handles = [handles[i] for i in indices]
-            labels = [labels[i] for i in indices]
-            fig.legend(handles, labels, loc='lower center', ncol=3, frameon=True)
+                indices.append(auc_labels.index(label))
+            auc_handles = [auc_handles[i] for i in indices]
+            auc_labels = [auc_labels[i] for i in indices]
+            auc_fig.legend(auc_handles, auc_labels, loc='lower center', ncol=3, frameon=True)
         else:
-            box = legend_dict[total_plots-1].get_position()
+            box = legend_dict['AUC'][total_plots-1].get_position()
             if grid_length == grid_width:
                 #put the legend underneath
                 xloc = box.x0 + 1
@@ -151,30 +204,30 @@ def mean_auc(data, methods, targets, args):
             else:
                 xloc = box.x0 + 0.465
                 yloc = box.y0 - 0.035
-            legend = fig.legend(handles, labels, loc='best', frameon=True)
+            auc_legend = auc_fig.legend(auc_handles, auc_labels, loc='best', frameon=True)
+            # aps_legend = aps_fig.legend(aps_handles, aps_labels, loc='best', frameon=True)
 
-        #add in line showing random performance
-        for plot_num in legend_dict:
-            legend_dict[plot_num].plot([0, 1], [0, 1], color='gray', lw=2,
-               linestyle='--', zorder=1)
         if args.color_scheme == 'cnn':
-            fig.subplots_adjust(wspace=0.05, hspace=0.5)
+            auc_fig.subplots_adjust(wspace=0.05, hspace=0.5)
         else:
             #TODO: currently doing this via manual tuning - can it be
             #automated? if you are using this, you may need to fiddle with
             #these numbers and be aware that if you try to use tight_layout it
             #seems to override whatever you do here
-            fig.subplots_adjust(hspace=-0.4, wspace=0.45)
-        for method in overall_auc.keys():
-	    overall_auc[method] /= total_plots
+            auc_fig.subplots_adjust(hspace=-0.4, wspace=0.45)
+        for method in overall_stats['AUC']:
+	    overall_stats['AUC'][method] /= total_plots
+	    overall_stats['APS'][method] /= total_plots
 	    # outfile.write('%s, AUC %.2f\n' 
                     # % (method.split('_')[0],overall_auc[method]))
         for method in methods:
             bytarget[method].close()
-        fig.savefig(args.plotname+'.pdf', bbox_inches='tight')
+        auc_fig.savefig(args.plotname+'_auc.pdf', bbox_inches='tight')
+        # aps_fig.savefig(args.plotname+'_aps.pdf', bbox_inches='tight')
 
-        #now do boxplot
-        fig,ax = plt.subplots()
+        #now do boxplots
+        auc_fig,auc_ax = plt.subplots()
+        aps_fig,aps_ax = plt.subplots()
         if args.make_boxplot:
             if args.color_scheme == 'd3r' or args.color_scheme == 'cnn':
                 palette = paper_palettes
@@ -201,44 +254,61 @@ def mean_auc(data, methods, targets, args):
                             split=True, edgecolor='black', size=size, linewidth=0,
                             linewidths=mew, jitter = True,
                             palette=palette, marker=marker,
-                            order=cnnpaper_order, ax=ax)
+                            order=cnnpaper_order, ax=auc_ax)
                     leghands.append(mlines.Line2D([], [], color='black',
                         fillstyle='none', marker=marker, linestyle='None',
                         mew=1,
                         markersize=size, label=target))
                 # ax.legend(handles=leghands, bbox_to_anchor=(1,-0.2),
                         # frameon=True)
-                ax.legend(handles=leghands, loc='lower left', ncol=2, 
+                auc_ax.legend(handles=leghands, loc='lower left', ncol=2, 
                         frameon=True)
+                sns.boxplot(x='Method', y='AUC', data=boxplot_df,
+                        color='white', order=cnnpaper_order, ax=auc_ax)
             else:
                 sns.swarmplot(x='Method', y='AUC',
                         data=boxplot_df, split=True, edgecolor='black', size=7,
-                        linewidth=0, palette = palette, ax=ax)
-            sns.boxplot(x='Method', y='AUC', data=boxplot_df,
-                    color='white', order=cnnpaper_order, ax=ax)
-            ax.set_ylabel('AUCs')
-            ax.set_xlabel('')
-            ax.set(ylim=(0,1.1))
-            xlims = ax.get_xlim()
-            ax.plot([xlims[0],xlims[1]],[0.5, 0.5], linestyle='--', color='gray',
+                        linewidth=0, palette = palette, ax=auc_ax)
+                sns.swarmplot(x='Method', y='APS',
+                        data=boxplot_df, split=True, edgecolor='black', size=7,
+                        linewidth=0, palette = palette, ax=aps_ax)
+                sns.boxplot(x='Method', y='AUC', data=boxplot_df,
+                        color='white', ax=auc_ax)
+                sns.boxplot(x='Method', y='APS', data=boxplot_df,
+                        color='white', ax=aps_ax)
+            #sigh
+            auc_ax.set_ylabel('AUCs')
+            auc_ax.set_xlabel('')
+            auc_ax.set(ylim=(0,1.1))
+            auc_xlims = auc_ax.get_xlim()
+            auc_ax.plot([auc_xlims[0],auc_xlims[1]],[0.5, 0.5], linestyle='--', color='gray',
                     lw=2, zorder=1, alpha=0.5)
-            for tick in ax.get_xticklabels():
+            for tick in auc_ax.get_xticklabels():
                 tick.set_rotation(45)
+            #APS
+            aps_ax.set_ylabel('APS')
+            aps_ax.set_xlabel('')
+            aps_ax.set(ylim=(0,1.1))
+            aps_xlims = auc_ax.get_xlim()
+            for tick in aps_ax.get_xticklabels():
+                tick.set_rotation(45)
+            #special cases for d3r paper
             if args.color_scheme == 'd3r':
-                labels = ax.get_xticklabels()
+                labels = auc_ax.get_xticklabels()
                 labels = [label.get_text().split() for label in labels]
                 labels = ['%s %s\n%s'%(x[0],x[1],x[2]) if not x[0] == 'Vina' else x[0] for x in labels]
-                ax.set_xticklabels(labels)
-            fig.savefig(args.plotname+'_boxplot.pdf', bbox_inches='tight')
-	return overall_auc
+                auc_ax.set_xticklabels(labels)
+            auc_fig.savefig(args.plotname+'_auc_boxplot.pdf', bbox_inches='tight')
+            aps_fig.savefig(args.plotname+'_aps_boxplot.pdf', bbox_inches='tight')
+	return overall_stats['AUC']
 
 if __name__=='__main__':
-	parser = ArgumentParser(description='Calculate AUC by target for multiple methods')
+	parser = ArgumentParser(description='Calculate AUC/AUPR by target for multiple methods')
 	parser.add_argument('-p','--predictions', nargs='*', default=[], 
                 help='files of predictions, formatted LABELS PREDICTIONS TARGET METHOD where METHOD is stylized as desired for output, with spaces replaced with underscores')
 	parser.add_argument('-o','--outprefix',type=str,default='bytarget',help='prefix for all output files')
-        parser.add_argument('-n','--plotname', default='roc_curve_bytarget',
-                help='Output filename for by-target ROC curves')
+        parser.add_argument('-n','--plotname', default='bytarget',
+                help='Output filename for by-target curves')
         parser.add_argument('-make_boxplot', action='store_true',
                 default=False, help='Make a boxplot of the by-target AUC values \
 associated with each method')
@@ -250,6 +320,7 @@ use those color schemes')
 	args= parser.parse_args()
 	
         data = {}
+        noskill = {}
         methods,targets = [],[]
         if args.color_scheme == 'cnn':
             paper_palettes['Vina'] = '#CCBB44'
@@ -260,11 +331,14 @@ use those color schemes')
                 method = contents[3].replace('_', ' ')
                 if target not in targets:
                     targets.append(target)
+                    noskill[target] = [0,0]
                 if method not in methods:
                     methods.append(method)
                 this_key = (target,method)
                 if this_key not in data:
                     data[this_key] = []
                 data[this_key].append((contents[0],contents[1]))
-	auc = mean_auc(data, methods, targets, args)
+                noskill[target][0] += (int(float(contents[0])) == 1)
+                noskill[target][1] += 1
+	auc = mean_auc(data, methods, targets, noskill, args)
         print auc
