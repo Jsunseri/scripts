@@ -94,18 +94,32 @@ for g in grids:
             frames[name][channel] = []
         framenum = int(match.group(4))
         if framenum > maxframes: maxframes = framenum
-        #assume density may appear or disappear in channels, resulting in gaps
-        while len(frames[name][channel]) < framenum:
-            length = len(frames[name][channel])
-            frames[name][channel].append(('',length))
         frames[name][channel].append((g,framenum))
 
-#yuck
 for name in frames:
     for channel in frames[name]:
         frames[name][channel].sort(key=lambda x:x[1])
 
+#we processed them the first time to get the frames in order; now we add
+#padding where necessary to deal with gaps
+#yuck
+final_frames = {}
 for name in frames:
+    final_frames[name] = {}
+    for channel in frames[name]:
+        final_frames[name][channel] = []
+        for num in range(len(frames[name][channel])):
+            true_num = frames[name][channel][num][1]
+            while (true_num > len(final_frames[name][channel])):
+                final_frames[name][channel].append(('', ''))
+            final_frames[name][channel].append(frames[name][channel][num])
+
+frames = final_frames
+for name in frames:
+    #TODO: better label placement
+    pymol.cmd.pseudoatom("label_")
+    pymol.cmd.hide("everything", "label_")
+    pymol.cmd.label("label_", 'u"\u03C3=%.2f"' %(args.level))
     if args.receptor:
         pymol.cmd.load(args.receptor, "rec")
         pymol.cmd.hide("lines", "rec")
@@ -120,18 +134,15 @@ for name in frames:
         for channel in frames[name]:
             if len(frames[name][channel]) >= (i+1) and frames[name][channel][i][0]:
                 fname = frames[name][channel][i][0]
-                assert frames[name][channel][i][1] == i
+                assert frames[name][channel][i][1] == i, "framenum %s at index %d" %(frames[name][channel][i][1],i)
                 pymol.cmd.load(fname)
                 objname = "%s_%d" %(channel,i)
                 pymol.cmd.isosurface(objname,os.path.splitext(fname)[0],args.level)
                 pymol.cmd.color(colormap[channel],objname)
-        pymol.cmd.pseudoatom("label_")
-        pymol.cmd.hide("everything", "label_")
-        pymol.cmd.label("label_", 'u"\u03C3=%.2f"' %(args.level))
         pymol.cmd.png("%s_%d.png" %(name, i), width=1080, height=1080, dpi=300, ray=1)
     pymol.cmd.reinitialize()
 
-    cmd = 'ffmpeg -framerate 2 -i %s_"%%d.png" -plays 0 %s.apng' %(name,name)
+    cmd = 'ffmpeg -y -framerate 2 -i %s_"%%d.png" -plays 0 %s.apng' %(name,name)
     p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
     out,err = p.communicate()
     if err:
