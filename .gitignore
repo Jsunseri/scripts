@@ -7,3 +7,7 @@ tags
 
 #pyc files
 *.pyc
+
+#compiled
+*.o
+*.out

@@ -1,0 +1,1 @@
+g++ --std=c++11 -I /usr/include/boost -I /usr/local/include/openbabel-2.0 -I ~/git/gnina_dirty/gninasrc/lib dummy_atomizer.cpp -I /usr/local/cuda/include -L /usr/local/lib/ -lopenbabel -L /usr/lib/x86_64-linux-gnu -lboost_filesystem -lboost_system -L ~/git/gnina_dirty/build/lib -lgnina

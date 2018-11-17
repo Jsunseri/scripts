@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 # Animate grids being optimized by network
 
@@ -12,12 +13,23 @@ pymol.finish_launching()
 parser = argparse.ArgumentParser(description="Generate animated png of DX grids"
         " numbered by frame.")
 parser.add_argument("-r", "--receptor", help="Optionally provide receptor"
-        " structure to include for reference in animation")
-parser.add_argument("-l", "--ligand", help="Optionally provide ligand structure"
-        " to include for reference in animation")
+        " structure(s) to include for reference in animation, frames and"
+        " structure should have a shared name prefix that can be extracted by"
+        " splitting on underscores", nargs='*', default=[])
+parser.add_argument("-l", "--ligand", help="Optionally provide ligand structure(s)"
+        " to include for reference in animation, frames and structure should"
+        " have a shared name prefix that can be extracted by splitting on"
+        " underscores", nargs='*', default=[])
 parser.add_argument("-cl", "--level", default=1.0, type=float,
         help="Contour level for density maps; valid range is [-5,5], default is 1.0.")
+parser.add_argument("-er", "--exclude_receptor", default=False,
+        action="store_true")
+parser.add_argument("-el", "--exclude_ligand", default=False,
+        action="store_true")
 args = parser.parse_args()
+assert not (args.exclude_ligand and args.exclude_receptor), "Have to output at "
+"least one of receptor and ligand grids"
+
 #this is dumb but i do kind of care about mapping to reasonable colors
 colormap = {}
 colormap["lig_Hydrogen"] = "hydrogen"
@@ -89,7 +101,12 @@ for g in grids:
         frames[name] = {}
     match = re.match(pattern,g)
     if match:
-        channel = '%s_%s' %(match.group(2), match.group(3))
+        gridclass = match.group(2)
+        if args.exclude_receptor and gridclass == "rec":
+            continue
+        elif args.exclude_ligand and gridclass == "lig":
+            continue
+        channel = '%s_%s' %(gridclass, match.group(3))
         if channel not in frames[name]:
             frames[name][channel] = []
         framenum = int(match.group(4))
@@ -115,19 +132,22 @@ for name in frames:
             final_frames[name][channel].append(frames[name][channel][num])
 
 frames = final_frames
+#if we have rec/lig structures, we attempt to match them by "name"...could make this more flexible
+recs = {}
+for rec in args.receptor:
+    recs[os.path.basename(rec).split('_')[0]] = rec
+ligs = {}
+for lig in args.ligand:
+    ligs[os.path.basename(lig).split('_')[0]] = lig
+
 for name in frames:
-    #TODO: better label placement
-    pymol.cmd.pseudoatom("label_")
-    pymol.cmd.hide("everything", "label_")
-    pymol.cmd.label("label_", 'u"\u03C3=%.2f"' %(args.level))
-    if args.receptor:
-        pymol.cmd.load(args.receptor, "rec")
+    if name in recs:
+        pymol.cmd.load(recs[name], "rec")
         pymol.cmd.hide("lines", "rec")
         pymol.cmd.cartoon("automatic", "rec")
-    if args.ligand:
-        pymol.cmd.load(args.ligand, "lig")
+    if name in ligs:
+        pymol.cmd.load(ligs[name], "lig")
     pymol.cmd.bg_color("white")
-    pymol.cmd.set("ray_opaque_background", "off")
     pymol.cmd.set("ray_shadows", "off")
     pymol.cmd.set("antialias", 2)
     for i in range(maxframes+1):
@@ -139,10 +159,12 @@ for name in frames:
                 objname = "%s_%d" %(channel,i)
                 pymol.cmd.isosurface(objname,os.path.splitext(fname)[0],args.level)
                 pymol.cmd.color(colormap[channel],objname)
-        pymol.cmd.png("%s_%d.png" %(name, i), width=1080, height=1080, dpi=300, ray=1)
+        pymol.cmd.png("%s_%d.png" %(name, i), width=1080, height=1080, dpi=100, ray=1)
     pymol.cmd.reinitialize()
 
-    cmd = 'ffmpeg -y -framerate 2 -i %s_"%%d.png" -plays 0 %s.apng' %(name,name)
+    cmd = 'ffmpeg -y -framerate 2 -i %s_%%d.png -plays 0 -vf '
+    'drawtext="fontfile=/usr/share/fonts/truetype/cmu/cmuntt.ttf: '
+    'text=\'σ=%.2f\':fontsize=24" %s.apng' %(name, args.level, name)
     p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
     out,err = p.communicate()
     if err:
