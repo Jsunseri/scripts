@@ -37,8 +37,10 @@ int main(int argc, char *argv[])
   {
     //in this case, there can be only one output
     ifstream in(argv[1]);
-    cerr  << "Could not read " << argv[1];
-    exit(1);
+    if (!in) {
+      cerr  << "Could not read " << argv[1];
+      exit(1);
+    }
 
     unsigned natoms = 0;
     vec center(0,0,0);
@@ -56,7 +58,9 @@ int main(int argc, char *argv[])
       center /= natoms;
     }
     if (argc >=3) {
-	    ofstream out(argv[2]);
+	  	string base(argv[2]);
+	  	string outname = base + ".gninatypes";
+	    ofstream out(outname);
 	  	if (!out)
 	  	{
 	  		cerr << "Error opening output file " << argv[2]<< "\n";
