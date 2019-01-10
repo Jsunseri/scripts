@@ -9,5 +9,9 @@ assert os.path.splitext(sys.argv[2])[-1] == '.nc', "Arg2 should be *.nc\n"
 topology = sys.argv[1]
 trajectory = sys.argv[2]
 
-frames = MDAnalysis.Universe(topology,trajectory)
+try:
+    frames = MDAnalysis.Universe(topology,trajectory)
+except:
+    print '0'
+    sys.exit(1)
 print (frames.trajectory.totaltime + frames.trajectory.dt) * 1e-3
