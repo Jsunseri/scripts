@@ -3,8 +3,10 @@
 
 # Animate grids being optimized by network
 
-import os, argparse, glob, re
+import sys, os, argparse, glob, re
 import subprocess as sp
+import numpy as np
+from gridData import OpenDX
 import __main__
 __main__.pymol_argv = ['pymol','-qc'] # Pymol: quiet and no GUI
 import pymol
@@ -13,159 +15,218 @@ pymol.finish_launching()
 parser = argparse.ArgumentParser(description="Generate animated png of DX grids"
         " numbered by frame.")
 parser.add_argument("-r", "--receptor", help="Optionally provide receptor"
-        " structure(s) to include for reference in animation, frames and"
-        " structure should have a shared name prefix that can be extracted by"
-        " splitting on underscores", nargs='*', default=[])
+        " structure(s) to include for reference in animation", 
+        default='')
 parser.add_argument("-l", "--ligand", help="Optionally provide ligand structure(s)"
-        " to include for reference in animation, frames and structure should"
-        " have a shared name prefix that can be extracted by splitting on"
-        " underscores", nargs='*', default=[])
+        " to include for reference in animation", 
+        default='')
 parser.add_argument("-cl", "--level", default=1.0, type=float,
         help="Contour level for density maps; valid range is [-5,5], default is 1.0.")
+parser.add_argument("-m", "--maps", help="Optionally provide density maps to"
+        " use; if not provided we'll glob for them in the current directory", 
+        nargs='*', default=[])
+parser.add_argument("-t", "--threshold", default=0.0, type=float, help="Specify"
+        " threshold for delta between start and end densities, below which a"
+        " density will not be included")
 parser.add_argument("-er", "--exclude_receptor", default=False,
-        action="store_true")
+        action="store_true", help="Exclude receptor density")
 parser.add_argument("-el", "--exclude_ligand", default=False,
-        action="store_true")
+        action="store_true", help="Exclude ligand density")
+parser.add_argument("--sigma", default=False, action="store_true",
+        help="Display sigma value used for isosurface on final animation")
 args = parser.parse_args()
 assert not (args.exclude_ligand and args.exclude_receptor), "Have to output at "
 "least one of receptor and ligand grids"
 
 #this is dumb but i do kind of care about mapping to reasonable colors
 colormap = {}
-colormap["lig_Hydrogen"] = "hydrogen"
-colormap["lig_PolarHydrogen"] = "gray"
-colormap["lig_AliphaticCarbonXSHydrophobe"] = "lightorange"
-colormap["lig_AliphaticCarbonXSNonHydrophobe"] = "brightorange"
-colormap["lig_AromaticCarbonXSHydrophobe"] = "wheat"
-colormap["lig_AromaticCarbonXSNonHydrophobe"] = "brown"
-colormap["lig_Nitrogen"] = "deepblue"
-colormap["lig_NitrogenXSDonor"] = "br3"
-colormap["lig_NitrogenXSDonorAcceptor"] = "br4"
-colormap["lig_NitrogenXSAcceptor"] = "br5"
-colormap["lig_Oxygen"] = "firebrick"
-colormap["lig_OxygenXSDonor"] = "br7"
-colormap["lig_OxygenXSDonorAcceptor"] = "br8"
-colormap["lig_OxygenXSAcceptor"] = "br9"
-colormap["lig_Sulfur"] = "sulfur"
-colormap["lig_SulfurAcceptor"] = "olive"
-colormap["lig_Phosphorus"] = "hotpink"
-colormap["lig_Fluorine"] = "limegreen"
-colormap["lig_Chlorine"] = "lime"
-colormap["lig_Bromine"] = "limon"
-colormap["lig_Iodine"] = "palecyan"
-colormap["lig_Magnesium"] = "silver"
-colormap["lig_Manganese"] = "dirtyviolet"
-colormap["lig_Zinc"] = "zinc"
-colormap["lig_Calcium"] = "calcium"
-colormap["lig_Iron"] = "iron"
-colormap["lig_GenericMetal"] = "lightblue"
-colormap["lig_Boron"] = "blue"
-colormap["rec_Hydrogen"] = "hydrogen"
-colormap["rec_PolarHydrogen"] = "gray"
-colormap["rec_AliphaticCarbonXSHydrophobe"] = "lightorange"
-colormap["rec_AliphaticCarbonXSNonHydrophobe"] = "brightorange"
-colormap["rec_AromaticCarbonXSHydrophobe"] = "wheat"
-colormap["rec_AromaticCarbonXSNonHydrophobe"] = "brown"
-colormap["rec_Nitrogen"] = "deepblue"
-colormap["rec_NitrogenXSDonor"] = "br3"
-colormap["rec_NitrogenXSDonorAcceptor"] = "br4"
-colormap["rec_NitrogenXSAcceptor"] = "br5"
-colormap["rec_Oxygen"] = "firebrick"
-colormap["rec_OxygenXSDonor"] = "br7"
-colormap["rec_OxygenXSDonorAcceptor"] = "br8"
-colormap["rec_OxygenXSAcceptor"] = "br9"
-colormap["rec_Sulfur"] = "sulfur"
-colormap["rec_SulfurAcceptor"] = "olive"
-colormap["rec_Phosphorus"] = "hotpink"
-colormap["rec_Fluorine"] = "limegreen"
-colormap["rec_Chlorine"] = "lime"
-colormap["rec_Bromine"] = "limon"
-colormap["rec_Iodine"] = "palecyan"
-colormap["rec_Magnesium"] = "silver"
-colormap["rec_Manganese"] = "dirtyviolet"
-colormap["rec_Zinc"] = "zinc"
-colormap["rec_Calcium"] = "calcium"
-colormap["rec_Iron"] = "iron"
-colormap["rec_GenericMetal"] = "lightblue"
-colormap["rec_Boron"] = "blue"
+colormap["Lig_Hydrogen"] = "hydrogen"
+colormap["Lig_PolarHydrogen"] = "gray"
+colormap["Lig_AliphaticCarbonXSHydrophobe"] = "lightorange"
+colormap["Lig_AliphaticCarbonXSNonHydrophobe"] = "brightorange"
+colormap["Lig_AromaticCarbonXSHydrophobe"] = "wheat"
+colormap["Lig_AromaticCarbonXSNonHydrophobe"] = "brown"
+colormap["Lig_Nitrogen"] = "deepblue"
+colormap["Lig_NitrogenXSDonor"] = "br3"
+colormap["Lig_NitrogenXSDonorAcceptor"] = "br4"
+colormap["Lig_NitrogenXSAcceptor"] = "br5"
+colormap["Lig_Oxygen"] = "firebrick"
+colormap["Lig_OxygenXSDonor"] = "br7"
+colormap["Lig_OxygenXSDonorAcceptor"] = "br8"
+colormap["Lig_OxygenXSAcceptor"] = "br9"
+colormap["Lig_Sulfur"] = "sulfur"
+colormap["Lig_SulfurAcceptor"] = "olive"
+colormap["Lig_Phosphorus"] = "hotpink"
+colormap["Lig_Fluorine"] = "limegreen"
+colormap["Lig_Chlorine"] = "lime"
+colormap["Lig_Bromine"] = "limon"
+colormap["Lig_Iodine"] = "palecyan"
+colormap["Lig_Magnesium"] = "silver"
+colormap["Lig_Manganese"] = "dirtyviolet"
+colormap["Lig_Zinc"] = "zinc"
+colormap["Lig_Calcium"] = "calcium"
+colormap["Lig_Iron"] = "iron"
+colormap["Lig_GenericMetal"] = "lightblue"
+colormap["Lig_Boron"] = "blue"
+colormap["Rec_Hydrogen"] = "hydrogen"
+colormap["Rec_PolarHydrogen"] = "gray"
+colormap["Rec_AliphaticCarbonXSHydrophobe"] = "lightorange"
+colormap["Rec_AliphaticCarbonXSNonHydrophobe"] = "brightorange"
+colormap["Rec_AromaticCarbonXSHydrophobe"] = "wheat"
+colormap["Rec_AromaticCarbonXSNonHydrophobe"] = "brown"
+colormap["Rec_Nitrogen"] = "deepblue"
+colormap["Rec_NitrogenXSDonor"] = "br3"
+colormap["Rec_NitrogenXSDonorAcceptor"] = "br4"
+colormap["Rec_NitrogenXSAcceptor"] = "br5"
+colormap["Rec_Oxygen"] = "firebrick"
+colormap["Rec_OxygenXSDonor"] = "br7"
+colormap["Rec_OxygenXSDonorAcceptor"] = "br8"
+colormap["Rec_OxygenXSAcceptor"] = "br9"
+colormap["Rec_Sulfur"] = "sulfur"
+colormap["Rec_SulfurAcceptor"] = "olive"
+colormap["Rec_Phosphorus"] = "hotpink"
+colormap["Rec_Fluorine"] = "limegreen"
+colormap["Rec_Chlorine"] = "lime"
+colormap["Rec_Bromine"] = "limon"
+colormap["Rec_Iodine"] = "palecyan"
+colormap["Rec_Magnesium"] = "silver"
+colormap["Rec_Manganese"] = "dirtyviolet"
+colormap["Rec_Zinc"] = "zinc"
+colormap["Rec_Calcium"] = "calcium"
+colormap["Rec_Iron"] = "iron"
+colormap["Rec_GenericMetal"] = "lightblue"
+colormap["Rec_Boron"] = "blue"
 
 #figure out the grids; make a dict with a key for each channel mapped to a
 #list of the frames in order
 frames = {}
 maxframes = 0
-grids = glob.glob("*.dx")
-pattern = r'([\w\.]+?)gninatypes_(rec|lig)_([A-Za-z]+)(\d+)\.dx$'
+#if list of grids was provided
+#if not, we glob for dx files 
+grids = args.maps
+if not grids:
+    grids = glob.glob("*.dx")
+else:
+    for g in grids:
+        if not os.path.isfile(g):
+            raise FileNotFoundError('%s not found\n' %g)
+
+#attempt to parse the file names according to what the input opt script will
+#name them, i.e. [recname]_[ligname]_[iternum]_[channel].dx
+pattern = r'([A-Za-z\d_]+)_(iter\d+)_(Rec|Lig)_([A-Za-z]+).dx$'
 for g in grids:
-    name = g.split('_')[0]
-    if name not in frames:
-        frames[name] = {}
     match = re.match(pattern,g)
     if match:
-        gridclass = match.group(2)
-        if args.exclude_receptor and gridclass == "rec":
+        gridclass = match.group(3)
+        if args.exclude_receptor and gridclass == "Rec":
             continue
-        elif args.exclude_ligand and gridclass == "lig":
+        elif args.exclude_ligand and gridclass == "Lig":
             continue
-        channel = '%s_%s' %(gridclass, match.group(3))
-        if channel not in frames[name]:
-            frames[name][channel] = []
-        framenum = int(match.group(4))
+        channel = '%s_%s' %(gridclass, match.group(4))
+        if channel not in frames:
+            frames[channel] = []
+        framenum = int(match.group(2).lstrip('iter'))
         if framenum > maxframes: maxframes = framenum
-        frames[name][channel].append((g,framenum))
+        frames[channel].append((g,framenum))
+    else:
+        print "%s could not be matched to pattern and will be excluded. Continuing...\n" %g
 
-for name in frames:
-    for channel in frames[name]:
-        frames[name][channel].sort(key=lambda x:x[1])
+if not frames:
+    print "No grid names match [recname]_[ligname]_[iternum]_[channel].dx pattern, so I can't parse them. Exiting...\n"
+    sys.exit()
+
+for channel in frames:
+    frames[channel].sort(key=lambda x:x[1])
+
+print "Got files...\n"
+#if we have a delta threshold, assess each channel to see if it meets the
+#threshold and pop any that don't
+#some question of how to apply threshold - sum up all the voxels? calculate
+#mean intensity? for now, looking at maximum absolute change per voxel
+#TODO: parallelize this or otherwise speed it up
+origin = np.array([0, 0, 0])
+if args.threshold:
+    print "Applying threshold...\n"
+    for channel in frames.keys():
+        start = OpenDX.field(0)
+        start.read(frames[channel][0][0])
+        origin = start.components['positions'].origin
+        sdat = start.components['data'].array
+        sufficient = False
+        framenums = range(len(frames[channel]))
+        framenums = [framenums[-1-i] for i in range(len(framenums))]
+        #for now
+        framenums = [len(frames[channel])-1]
+        for idx in framenums:
+            print "%s,%d\n" %(channel,idx)
+            nextframe = OpenDX.field(0)
+            nextframe.read(frames[channel][idx][0])
+            ndat = nextframe.components['data'].array
+            if np.max(np.abs(sdat - ndat)) > args.threshold:
+                sufficient = True
+                break
+        if not sufficient:
+            frames.pop(channel, None)
+        #TODO:remove
+        break
+
+# if not frames:
+    # print "No channels changed enough to pass the threshold. Exiting.\n"
+    # sys.exit()
 
 #we processed them the first time to get the frames in order; now we add
-#padding where necessary to deal with gaps
-#yuck
+#padding (empty grids) where necessary to deal with any gaps
 final_frames = {}
-for name in frames:
-    final_frames[name] = {}
-    for channel in frames[name]:
-        final_frames[name][channel] = []
-        for num in range(len(frames[name][channel])):
-            true_num = frames[name][channel][num][1]
-            while (true_num > len(final_frames[name][channel])):
-                final_frames[name][channel].append(('', ''))
-            final_frames[name][channel].append(frames[name][channel][num])
+for channel in frames:
+    final_frames[channel] = []
+    for element in frames[channel]:
+        true_num = element[1]
+        while (true_num > len(final_frames[channel])):
+            next_num = len(final_frames[channel])
+            final_frames[channel].append(('', next_num))
+        final_frames[channel].append(element)
 
 frames = final_frames
-#if we have rec/lig structures, we attempt to match them by "name"...could make this more flexible
-recs = {}
-for rec in args.receptor:
-    recs[os.path.basename(rec).split('_')[0]] = rec
-ligs = {}
-for lig in args.ligand:
-    ligs[os.path.basename(lig).split('_')[0]] = lig
 
-for name in frames:
-    if name in recs:
-        pymol.cmd.load(recs[name], "rec")
+print "Generating images\n"
+for i in range(maxframes+1):
+    if args.receptor:
+        pymol.cmd.load(args.receptor, "rec")
         pymol.cmd.hide("lines", "rec")
         pymol.cmd.cartoon("automatic", "rec")
-    if name in ligs:
-        pymol.cmd.load(ligs[name], "lig")
+    if args.ligand:
+        pymol.cmd.load(args.ligand, "lig")
     pymol.cmd.bg_color("white")
+    pymol.util.cbaw()
+    pymol.cmd.set("ray_opaque_background", "off")
     pymol.cmd.set("ray_shadows", "off")
+    pymol.cmd.set("ray_volume", "on")
     pymol.cmd.set("antialias", 2)
-    for i in range(maxframes+1):
-        for channel in frames[name]:
-            if len(frames[name][channel]) >= (i+1) and frames[name][channel][i][0]:
-                fname = frames[name][channel][i][0]
-                assert frames[name][channel][i][1] == i, "framenum %s at index %d" %(frames[name][channel][i][1],i)
-                pymol.cmd.load(fname)
-                objname = "%s_%d" %(channel,i)
-                pymol.cmd.isosurface(objname,os.path.splitext(fname)[0],args.level)
-                pymol.cmd.color(colormap[channel],objname)
-        pymol.cmd.png("%s_%d.png" %(name, i), width=1080, height=1080, dpi=100, ray=1)
+    for channel in frames:
+        assert frames[channel][i][1] == i, "framenum %s at index %d" %(frames[name][channel][i][1],i)
+        if len(frames[channel]) >= (i+1):
+            fname = frames[channel][i][0]
+            if not os.path.isfile(fname):
+                raise FileNotFoundError('%s not found\n' %fname)
+            # pymol.cmd.load(fname)
+            # objname = "%s_%d" %(channel,i)
+            # pymol.cmd.isosurface(objname,os.path.splitext(fname)[0],args.level)
+            # pymol.cmd.color(colormap[channel],objname)
+    pymol.cmd.origin(position='[%f, %f, %f]' %(origin[0], origin[1],
+        origin[2]))
+    pymol.cmd.center("origin")
+    pymol.cmd.orient("all", state=1)
+    pymol.cmd.png("frame%d.png" %(i), width=1080, height=1080, dpi=100, ray=1)
     pymol.cmd.reinitialize()
 
+print "Making movie\n"
+if args.sigma:
     cmd = 'ffmpeg -y -framerate 2 -i %s_%%d.png -plays 0 -vf '
     'drawtext="fontfile=/usr/share/fonts/truetype/cmu/cmuntt.ttf: '
     'text=\'σ=%.2f\':fontsize=24" %s.apng' %(name, args.level, name)
-    p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
-    out,err = p.communicate()
-    if err:
-            print err
+else:
+    cmd = 'ffmpeg -y -framerate 2 -i %s_%%d.png -plays 0 %s.mp4' %(name, name)
+p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
+out,err = p.communicate()
+if err:
+    print err
