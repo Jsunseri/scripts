@@ -34,6 +34,11 @@ parser.add_argument("-el", "--exclude_ligand", default=False,
         action="store_true", help="Exclude ligand density")
 parser.add_argument("--sigma", default=False, action="store_true",
         help="Display sigma value used for isosurface on final animation")
+parser.add_argument("-v", "--view", default='', help='Optionally'
+        ' provide a view for pymol for stricter control over the final scene,'
+        ' must be formatted as a string of eighteen comma-separated floats')
+parser.add_argument("-k", "--keep_start", default=False, action='store_true',
+        help='Keep whatever density is present at iteration 0 for reference')
 args = parser.parse_args()
 assert not (args.exclude_ligand and args.exclude_receptor), "Have to output at "
 "least one of receptor and ligand grids"
@@ -144,6 +149,7 @@ print "Got files...\n"
 #some question of how to apply threshold - sum up all the voxels? calculate
 #mean intensity? for now, looking at maximum absolute change per voxel
 #TODO: parallelize this or otherwise speed it up
+frame0 = {}
 origin = np.array([0, 0, 0])
 if args.threshold:
     print "Applying threshold...\n"
@@ -152,6 +158,8 @@ if args.threshold:
         start.read(frames[channel][0][0])
         origin = start.components['positions'].origin
         sdat = start.components['data'].array
+        if args.keep_start:
+            frame0[channel] = frames[channel][0][0]
         sufficient = False
         framenums = range(len(frames[channel]))
         framenums = [framenums[-1-i] for i in range(len(framenums))]
@@ -167,12 +175,10 @@ if args.threshold:
                 break
         if not sufficient:
             frames.pop(channel, None)
-        #TODO:remove
-        break
 
-# if not frames:
-    # print "No channels changed enough to pass the threshold. Exiting.\n"
-    # sys.exit()
+if not frames:
+    print "No channels changed enough to pass the threshold. Exiting.\n"
+    sys.exit()
 
 #we processed them the first time to get the frames in order; now we add
 #padding (empty grids) where necessary to deal with any gaps
@@ -189,43 +195,65 @@ for channel in frames:
 frames = final_frames
 
 print "Generating images\n"
-for i in range(maxframes+1):
-    if args.receptor:
-        pymol.cmd.load(args.receptor, "rec")
-        pymol.cmd.hide("lines", "rec")
-        pymol.cmd.cartoon("automatic", "rec")
-    if args.ligand:
-        pymol.cmd.load(args.ligand, "lig")
-    pymol.cmd.bg_color("white")
-    pymol.util.cbaw()
-    pymol.cmd.set("ray_opaque_background", "off")
-    pymol.cmd.set("ray_shadows", "off")
-    pymol.cmd.set("ray_volume", "on")
-    pymol.cmd.set("antialias", 2)
-    for channel in frames:
-        assert frames[channel][i][1] == i, "framenum %s at index %d" %(frames[name][channel][i][1],i)
-        if len(frames[channel]) >= (i+1):
-            fname = frames[channel][i][0]
-            if not os.path.isfile(fname):
-                raise FileNotFoundError('%s not found\n' %fname)
-            # pymol.cmd.load(fname)
-            # objname = "%s_%d" %(channel,i)
-            # pymol.cmd.isosurface(objname,os.path.splitext(fname)[0],args.level)
-            # pymol.cmd.color(colormap[channel],objname)
-    pymol.cmd.origin(position='[%f, %f, %f]' %(origin[0], origin[1],
-        origin[2]))
-    pymol.cmd.center("origin")
-    pymol.cmd.orient("all", state=1)
-    pymol.cmd.png("frame%d.png" %(i), width=1080, height=1080, dpi=100, ray=1)
-    pymol.cmd.reinitialize()
+with open('animate.py', 'w') as f:
+    f.write('from pymol import cmd\n\n')
+    for i in range(maxframes+1):
+        if args.receptor:
+            f.write('cmd.load("%s", "rec")\n' %args.receptor)
+            f.write('cmd.hide("lines", "rec")\n')
+            f.write('cmd.cartoon("automatic", "rec")\n')
+        if args.ligand:
+            f.write('cmd.load("%s", "lig")\n' %args.ligand)
+            f.write('cmd.show("sticks", "lig")\n')
+        f.write('cmd.bg_color("white")\n')
+        f.write('util.cbaw()\n')
+        f.write('cmd.set("ray_opaque_background", "off")\n')
+        f.write('cmd.set("ray_shadows", "off")\n')
+        f.write('cmd.set("ray_volume", "on")\n')
+        f.write('cmd.set("antialias", 2)\n')
+        if args.keep_start:
+            for channel in frame0:
+                fname = frame0[channel]
+                f.write('cmd.load("%s")\n' %fname)
+                objname = "%s_%s" %(channel,'start')
+                f.write('cmd.isosurface("%s", "%s", level=%f)\n'
+                        %(objname,os.path.splitext(fname)[0],1))
+                f.write('cmd.color("%s", "%s")\n' %(colormap[channel],objname))
+        for channel in frames:
+            assert frames[channel][i][1] == i, "framenum %s at index %d" %(frames[name][channel][i][1],i)
+            if len(frames[channel]) >= (i+1):
+                fname = frames[channel][i][0]
+                if not os.path.isfile(fname):
+                    raise FileNotFoundError('%s not found\n' %fname)
+                f.write('cmd.load("%s")\n' %fname)
+                objname = "%s_%d" %(channel,i)
+                f.write('cmd.isosurface("%s", "%s", level=%f)\n'
+                        %(objname,os.path.splitext(fname)[0],args.level))
+                f.write('cmd.color("%s", "%s")\n' %(colormap[channel],objname))
+        if not args.view:
+            f.write('cmd.origin(position=[%f, %f, %f])\n' %(origin[0], origin[1],
+                origin[2]))
+            f.write('cmd.center("origin")\n')
+            f.write('cmd.orient("lig", state=1)\n')
+            f.write('cmd.zoom("center", 20, complete=1)\n')
+        else:
+            f.write('cmd.set_view("%s")\n' %args.view)
+        f.write('cmd.png("frame%d.png", width=1080, height=1080, dpi=300, ray=1)\n' %(i))
+        f.write('cmd.reinitialize()\n')
+cmd = 'pymol -c animate.py'
+p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
+out,err = p.communicate()
+if err:
+    print err
 
 print "Making movie\n"
 if args.sigma:
-    cmd = 'ffmpeg -y -framerate 2 -i %s_%%d.png -plays 0 -vf '
+    cmd = 'ffmpeg -y -framerate 5 -i %s%%d.png -plays 0 -vf '
     'drawtext="fontfile=/usr/share/fonts/truetype/cmu/cmuntt.ttf: '
-    'text=\'σ=%.2f\':fontsize=24" %s.apng' %(name, args.level, name)
+    'text=\'σ=%.2f\':fontsize=24" %s.apng' %('frame', args.level, 'frame')
 else:
-    cmd = 'ffmpeg -y -framerate 2 -i %s_%%d.png -plays 0 %s.mp4' %(name, name)
+    cmd = 'ffmpeg -y -framerate 5 -i %s%%d.png -plays 0 %s.mp4' %('frame',
+            'frame')
 p = sp.Popen(cmd,stdout=sp.PIPE,stderr=sp.PIPE,shell=True)
 out,err = p.communicate()
 if err:
