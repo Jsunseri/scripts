@@ -19,6 +19,24 @@ pymol.finish_launching()
 mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 mpl.rc('text', usetex=True)
 
+def get_plot_columns(channel_list, channel_groups):
+    '''
+    Given the channels being used and the way we want to group the columns,
+    figure out the number of rows and columns as well as the mapping from
+    channel and plot id in the final plot grid
+    '''
+    plot_ids = {}
+    plot_groups = [[] for _ in xrange(len(channel_groups))]
+    for i,channels in enumerate(channel_groups):
+        plot_groups[i] = [el for el in channels if el in channel_list]
+    plot_groups = [olist for olist in plot_groups if olist]
+    grid_length = max([len(l) for l in plot_groups])
+    grid_width = len(plot_groups)
+    for i,column in enumerate(plot_groups):
+        for j,channel in enumerate(column):
+            plot_ids[channel] = i + j * grid_width
+    return (grid_length, grid_width, plot_ids)
+
 plot_options = ['movie', 'convergence', 'per_voxel']
 
 class DefaultListAction(argparse.Action):
@@ -130,14 +148,19 @@ colormap["Rec_Iron"] = "iron"
 colormap["Rec_GenericMetal"] = "lightblue"
 colormap["Rec_Boron"] = "blue"
 
-column_groups = {}
-column_groups[0] = ['AliphaticCarbonXSHydrophobe',
-        'AliphaticCarbonXSNonHydrophobe', 'AromaticCarbonXSHydrophobe', 
-        'AromaticCarbonXSNonHydrophobe']
-column_groups[1] = ['Nitrogen', 'NitrogenXSDonor', 'NitrogenXSDonorAcceptor',
-        'NitrogenXSAcceptor']
-column_groups[2] = ['Oxygen', 'OxygenXSDonor', 'OxygenXSDonorAcceptor', 'OxygenXSAcceptor']
-column_groups[3] = 
+column_groups = []
+column_groups.append(['Lig_AliphaticCarbonXSHydrophobe',
+        'Lig_AliphaticCarbonXSNonHydrophobe', 'Lig_AromaticCarbonXSHydrophobe', 
+        'Lig_AromaticCarbonXSNonHydrophobe'])
+column_groups.append(['Lig_Nitrogen', 'Lig_NitrogenXSDonor', 'Lig_NitrogenXSDonorAcceptor',
+        'Lig_NitrogenXSAcceptor'])
+column_groups.append(['Lig_Oxygen', 'Lig_OxygenXSDonor', 'Lig_OxygenXSDonorAcceptor',
+    'Lig_OxygenXSAcceptor'])
+column_groups.append(['Lig_Fluorine', 'Lig_Chlorine', 'Lig_Bromine', 'Lig_Iodine'])
+column_groups.append(['Lig_Sulfur', 'Lig_SulfurAcceptor', 'Lig_Phosphorus',
+    'Lig_Boron'])
+column_groups.append(['Lig_Magnesium', 'Lig_Manganese', 'Lig_Zinc', 'Lig_Calcium'])
+column_groups.append(['Lig_Iron', 'Lig_GenericMetal'])
 
 #figure out the grids; make a dict with a key for each channel mapped to a
 #list of the frames in order
@@ -338,9 +361,9 @@ if 'per_voxel' in args.figs:
     #channel) showing actual change per voxel compared with the start
     #and let's animate it just cuz
     print "Explicitly plotting per-voxel changes, per-channel, over time"
+    grid_length,grid_width,plot_ids = get_plot_columns(frames.keys(),
+            column_groups)
     total_plots = len(frames)
-    grid_width = int(math.ceil(math.sqrt(total_plots)))
-    grid_length = int(math.ceil(float(total_plots)/grid_width))
     start_data = {}
     for channel in frames:
         start = OpenDX.field(0)
@@ -353,20 +376,21 @@ if 'per_voxel' in args.figs:
         print "Plotting timestep %d" %t
         fig,ax = plt.subplots(figsize=(16,16))
         channel_ax = []
-        for i,channel in enumerate(frames):
+        for channel in frames:
+            plot_num = plot_ids[channel]
             tnow = OpenDX.field(0)
             tnow.read(frames[channel][t][0])
             tnow_pixels = tnow.components['data'].array
             subax = plt.subplot2grid((grid_length, grid_width),
-                (i/grid_width, i % grid_width), fig=fig)
+                (plot_num/grid_width, plot_num % grid_width), fig=fig)
             subax.plot(range(tnow_pixels.size), tnow_pixels -
                     start_data[channel],
                     color=pymol.querying.get_color_tuple(colormap[channel]),
                     ls=None)
             subax.set_title(channel.replace('_', ' '))
-            if i % grid_width == 0:
+            if plot_num % grid_width == 0:
                 subax.set_ylabel('Density')
-            if i / grid_width == grid_length-1:
+            if plot_num / grid_width == grid_length-1:
                 subax.set_xlabel('Voxel')
             for tick in subax.get_xticklabels():
                 tick.set_rotation(45)
