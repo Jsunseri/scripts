@@ -6,8 +6,9 @@
 # over time (mostly to assess convergence), showing how much grids changed over
 # time at a per-voxel granularity (suitable e.g. for animating the figures)
 
-import sys, os, argparse, glob, re, math
+import sys, os, argparse, glob, re, math, cPickle
 import subprocess as sp
+from multiprocessing import Pool
 import numpy as np
 from gridData import OpenDX
 import matplotlib.pyplot as plt
@@ -85,6 +86,11 @@ parser.add_argument("-k", "--keep_start", default=False, action='store_true',
         help='Keep whatever density is present at iteration 0 for reference')
 parser.add_argument("--figs", nargs="*", action=DefaultListAction,
         default=plot_options, metavar='ACTION')
+parser.add_argument("--pickle", default='', help='Provide pickle of'
+        ' frames dict mapping desired channels to frames, per-channel deltas'
+        ' per timestep')
+parser.add_argument("-O", "--overwrite", default=False, action='store_true',
+        help='Overwrite existing image files in this directory')
 args = parser.parse_args()
 assert not (args.exclude_ligand and args.exclude_receptor), "Have to output at "
 "least one of receptor and ligand grids"
@@ -162,83 +168,108 @@ column_groups.append(['Lig_Sulfur', 'Lig_SulfurAcceptor', 'Lig_Phosphorus',
 column_groups.append(['Lig_Magnesium', 'Lig_Manganese', 'Lig_Zinc', 'Lig_Calcium'])
 column_groups.append(['Lig_Iron', 'Lig_GenericMetal'])
 
-#figure out the grids; make a dict with a key for each channel mapped to a
-#list of the frames in order
 frames = {}
-maxframes = 0
-#if list of grids was provided
-#if not, we glob for dx files 
-grids = args.maps
-if not grids:
-    grids = glob.glob("*.dx")
-else:
-    for g in grids:
-        if not os.path.isfile(g):
-            raise FileNotFoundError('%s not found\n' %g)
-
-#attempt to parse the file names according to what the input opt script will
-#name them, i.e. [recname]_[ligname]_[iternum]_[channel].dx
-pattern = r'([A-Za-z\d_]+)_(iter\d+)_(Rec|Lig)_([A-Za-z]+).dx$'
-for g in grids:
-    match = re.match(pattern,g)
-    if match:
-        gridclass = match.group(3)
-        if args.exclude_receptor and gridclass == "Rec":
-            continue
-        elif args.exclude_ligand and gridclass == "Lig":
-            continue
-        channel = '%s_%s' %(gridclass, match.group(4))
-        if channel not in frames:
-            frames[channel] = []
-        framenum = int(match.group(2).lstrip('iter'))
-        if framenum > maxframes: maxframes = framenum
-        frames[channel].append((g,framenum))
+cdiffs = []
+#if pickle was provided, sanity check it
+if args.pickle:
+    if not os.path.isfile(args.pickle):
+        raise FileNotFoundError('%s not found\n' %g)
+    frames,cdiffs = cPickle.load(args.pickle)
+    if frames:
+        try:
+            maxframes = max([len(iters) for iters in frames.values()])
+        except (AttributeError, TypeError):
+            raise AssertionError('frames should be a dict mapping channels to frames')
+        for channel,filelist in frames:
+            try:
+                colormap[channel]
+            except KeyError:
+                raise AssertionError('frames have unknown channel %s'
+                        %channel)
+            for f in filelist:
+                if not os.path.isfile(f):
+                    raise FileNotFoundError('%s not found\n' %f)
+            try:
+                frames[channel].sort(key=lambda x:x[1])
+            except:
+                raise AssertionError('frames should have lists of file:framenum tuples')
+if not frames:
+    #figure out the grids; make a dict with a key for each channel mapped to a
+    #list of the frames in order
+    maxframes = 0
+    #if list of grids was provided
+    #if not, we glob for dx files 
+    grids = args.maps
+    if not grids:
+        grids = glob.glob("*.dx")
     else:
-        print "%s could not be matched to pattern and will be excluded. Continuing...\n" %g
-
-if not frames:
-    print "No grid names match [recname]_[ligname]_[iternum]_[channel].dx pattern, so I can't parse them. Exiting...\n"
-    sys.exit()
-
-for channel in frames:
-    frames[channel].sort(key=lambda x:x[1])
-
-print "Got files...\n"
-#if we have a delta threshold, assess each channel to see if it meets the
-#threshold and pop any that don't
-#some question of how to apply threshold - sum up all the voxels? calculate
-#mean intensity? for now, looking at maximum absolute change per voxel
-#TODO: parallelize this or otherwise speed it up
-frame0 = {}
-origin = np.array([0, 0, 0])
-if args.threshold:
-    print "Applying threshold...\n"
-    for channel in frames.keys():
-        start = OpenDX.field(0)
-        start.read(frames[channel][0][0])
-        origin = start.components['positions'].origin
-        sdat = start.components['data'].array
-        if args.keep_start:
-            frame0[channel] = frames[channel][0][0]
-        sufficient = False
-        framenums = range(len(frames[channel]))
-        framenums = [framenums[-1-i] for i in range(len(framenums))]
-        #for now
-        framenums = [len(frames[channel])-1]
-        for idx in framenums:
-            print "%s,%d\n" %(channel,idx)
-            nextframe = OpenDX.field(0)
-            nextframe.read(frames[channel][idx][0])
-            ndat = nextframe.components['data'].array
-            if np.max(np.abs(sdat - ndat)) > args.threshold:
-                sufficient = True
-                break
-        if not sufficient:
-            frames.pop(channel, None)
-
-if not frames:
-    print "No channels changed enough to pass the threshold. Exiting.\n"
-    sys.exit()
+        for g in grids:
+            if not os.path.isfile(g):
+                raise FileNotFoundError('%s not found\n' %g)
+    
+    #attempt to parse the file names according to what the input opt script will
+    #name them, i.e. [recname]_[ligname]_[iternum]_[channel].dx
+    pattern = r'([A-Za-z\d_]+)_(iter\d+)_(Rec|Lig)_([A-Za-z]+).dx$'
+    for g in grids:
+        match = re.match(pattern,g)
+        if match:
+            gridclass = match.group(3)
+            if args.exclude_receptor and gridclass == "Rec":
+                continue
+            elif args.exclude_ligand and gridclass == "Lig":
+                continue
+            channel = '%s_%s' %(gridclass, match.group(4))
+            if channel not in frames:
+                frames[channel] = []
+            framenum = int(match.group(2).lstrip('iter'))
+            if framenum > maxframes: maxframes = framenum
+            frames[channel].append((g,framenum))
+        else:
+            print "%s could not be matched to pattern and will be excluded. Continuing...\n" %g
+    
+    if not frames:
+        print "No grid names match [recname]_[ligname]_[iternum]_[channel].dx pattern, so I can't parse them. Exiting...\n"
+        sys.exit()
+    
+    for channel in frames:
+        frames[channel].sort(key=lambda x:x[1])
+    
+    print "Got files...\n"
+    #if we have a delta threshold, assess each channel to see if it meets the
+    #threshold and pop any that don't
+    #some question of how to apply threshold - sum up all the voxels? calculate
+    #mean intensity? for now, looking at maximum absolute change per voxel
+    #TODO: parallelize this or otherwise speed it up
+    frame0 = {}
+    origin = np.array([0, 0, 0])
+    if args.threshold:
+        print "Applying threshold...\n"
+        for channel in frames.keys():
+            start = OpenDX.field(0)
+            start.read(frames[channel][0][0])
+            origin = start.components['positions'].origin
+            sdat = start.components['data'].array
+            if args.keep_start:
+                frame0[channel] = frames[channel][0][0]
+            sufficient = False
+            framenums = range(len(frames[channel]))
+            framenums = [framenums[-1-i] for i in range(len(framenums))]
+            #for now
+            framenums = [len(frames[channel])-1]
+            for idx in framenums:
+                print "%s,%d\n" %(channel,idx)
+                nextframe = OpenDX.field(0)
+                nextframe.read(frames[channel][idx][0])
+                ndat = nextframe.components['data'].array
+                if np.max(np.abs(sdat - ndat)) > args.threshold:
+                    sufficient = True
+                    break
+            if not sufficient:
+                frames.pop(channel, None)
+    
+    if not frames:
+        print "No channels changed enough to pass the threshold. Exiting.\n"
+        sys.exit()
 
 #we processed them the first time to get the frames in order; now we add
 #padding (empty grids) where necessary to deal with any gaps
@@ -259,6 +290,9 @@ if 'movie' in args.figs:
     with open('animate.py', 'w') as f:
         f.write('from pymol import cmd\n\n')
         for i in range(maxframes+1):
+            outname = 'frame%d.png' %i
+            if not args.overwrite and os.path.isfile(outname):
+                continue
             if args.receptor:
                 f.write('cmd.load("%s", "rec")\n' %args.receptor)
                 f.write('cmd.hide("lines", "rec")\n')
@@ -320,37 +354,55 @@ if 'movie' in args.figs:
     if err:
         print err
 
+def pairwise_timestep_diffs(channel_frames):
+    '''
+    Returns list of mean diffs per timestep for a given channel
+    '''
+    maxframes = len(channel_frames)
+    cdiffs = []
+    t1 = OpenDX.field(0)
+    t1.read(channel_frames[0][0])
+    t1_pixels = t1.components['data'].array
+    for t in xrange(1, maxframes):
+        t2 = OpenDX.field(0)
+        t2.read(channel_frames[t][0])
+        t2_pixels = t2.components['data'].array
+        mean_diff = np.mean(t2_pixels - t1_pixels)
+        cdiffs.append(mean_diff)
+        t1_pixels = t2_pixels
+    return cdiffs
+
 if 'convergence' in args.figs:
     #if convergence, make per-channel and overall plots of average T_i - T_i-1 per-voxel over time
     print "Summarizing per-voxel change over time"
-    total_channels = len(frames.keys())
+    if cdiffs:
+        #got them from the pickle, let's sanity check
+        assert len(cdiffs) == len(frames), "Different numbers of channels in cdiffs and frames"
+        nsteps = len(frames.values()[0])
+        for i,tsteps in enumerate(cdiffs):
+            this_tsteps = len(tsteps)
+            assert this_tsteps == nsteps, "Incorrect number of timesteps at %d, %d vs %d\n" %(i, this_tsteps, nsteps)
+    else:
+        pool = Pool()
+        cdiffs = pool.map(pairwise_timestep_diffs, frames.values())
+
     #average over all channels
     fig,ax = plt.subplots(figsize=(16,16), num=1)
     #per-channel
     cfig,cax = plt.subplots(figsize=(16,16), num=2)
-    diffs = [0] * maxframes
-    #TODO: this is really slow, is it because of OpenDX? parallelize or something
-    for i,channel in enumerate(frames):
-        print 'Channel %d/%d\n' %(i+1,len(frames))
-        cdiffs = []
-        for t in range(1, maxframes+1):
-            t1 = OpenDX.field(0)
-            t1.read(frames[channel][t-1][0])
-            t1_pixels = t1.components['data'].array
-            t2 = OpenDX.field(0)
-            t2.read(frames[channel][t][0])
-            t2_pixels = t2.components['data'].array
-            mean_diff = np.mean(t2_pixels - t1_pixels)
-            cdiffs.append(mean_diff)
-            diffs[t-1] += mean_diff
-        cax.plot(range(maxframes), cdiffs,
+    for i,channel in enumerate(frames.iterkeys()):
+        cax.plot(range(maxframes), cdiffs[i],
                 color=pymol.querying.get_color_tuple(colormap[channel]),
-                label=channel, lw=6)
+                label=channel.replace('_', ' '), lw=6)
+
+    #per-channel fig
     cax.set_xlabel('Iteration')
     cax.set_ylabel('Average per-pixel change')
     cax.legend(loc='best', frameon=True)
     cfig.savefig('per_channel_change.pdf', bbox_inches='tight')
-    diffs = [num/total_channels for num in diffs]
+
+    #mean over all channels
+    diffs = np.mean(np.array(cdiffs), axis=0)
     ax.plot(range(maxframes), diffs, lw=6)
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Average per-pixel change')
@@ -373,6 +425,9 @@ if 'per_voxel' in args.figs:
     ymax = 0
     ymin = 0
     for t in range(maxframes, 0, -1):
+        outname = "voxels_iter%d.png" %t
+        if not args.overwrite and os.path.isfile(outname):
+            continue
         print "Plotting timestep %d" %t
         fig,ax = plt.subplots(figsize=(16,16))
         channel_ax = []
@@ -404,7 +459,7 @@ if 'per_voxel' in args.figs:
         for i,_ in enumerate(frames):
             channel_ax[i].set_ylim(ymin, ymax)
         fig.subplots_adjust(hspace=0.5, wspace=0.5)
-        fig.savefig("voxels_iter%d.png" %t, bbox_inches="tight")
+        fig.savefig(outname, bbox_inches="tight")
 
     cmd = 'ffmpeg -y -framerate 5 -i %s%%d.png -plays 0 %s.mp4' %('voxels_iter',
             'voxels')
@@ -412,3 +467,5 @@ if 'per_voxel' in args.figs:
     out,err = p.communicate()
     if err:
         print err
+
+cPickle.dump((frames,cdiffs), open('summary.cpickle', 'w'), -1)
