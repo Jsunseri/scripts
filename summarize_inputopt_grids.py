@@ -174,19 +174,19 @@ cdiffs = []
 if args.pickle:
     if not os.path.isfile(args.pickle):
         raise FileNotFoundError('%s not found\n' %g)
-    frames,cdiffs = cPickle.load(args.pickle)
+    frames,cdiffs = cPickle.load(open(args.pickle))
     if frames:
         try:
             maxframes = max([len(iters) for iters in frames.values()])
         except (AttributeError, TypeError):
             raise AssertionError('frames should be a dict mapping channels to frames')
-        for channel,filelist in frames:
+        for channel,filelist in frames.iteritems():
             try:
                 colormap[channel]
             except KeyError:
                 raise AssertionError('frames have unknown channel %s'
                         %channel)
-            for f in filelist:
+            for (f,num) in filelist:
                 if not os.path.isfile(f):
                     raise FileNotFoundError('%s not found\n' %f)
             try:
