@@ -13,11 +13,14 @@ import seaborn as sns
 import matplotlib as mpl
 import matplotlib.lines as mlines
 
-plt.style.use('seaborn-white')
+# SMALL_SIZE=16
+# MEDIUM_SIZE=18
+# BIGGER_SIZE=18
+# SUBFIG_SIZE=18
 SMALL_SIZE=10
 MEDIUM_SIZE=12
-BIGGER_SIZE=16
-SUBFIG_SIZE=14
+BIGGER_SIZE=12
+SUBFIG_SIZE=12
 
 plt.rc('font', size=BIGGER_SIZE)          # controls default text sizes
 plt.rc('axes', titlesize=MEDIUM_SIZE)     # fontsize of the axes title
@@ -27,9 +30,11 @@ plt.rc('ytick', labelsize=SMALL_SIZE)    # fontsize of the tick labels
 plt.rc('legend', fontsize=SMALL_SIZE)    # legend fontsize
 plt.rc('figure', titlesize=BIGGER_SIZE)  # fontsize of the figure title
 
+plt.style.use('seaborn-white')
 mpl.rc('font', **{'family': 'serif', 'serif': ['Computer Modern']})
 mpl.rc('text', usetex=True)
 
+sns.set_palette(sns.color_palette("hls", 8))
 paper_palettes = {}
 paper_palettes['Vina'] = '#000000' #the original CNN paper used ccbb44
 paper_palettes['CSAR'] = '#332288'
@@ -40,6 +45,15 @@ paper_palettes['CNN Affinity Refine'] = '#332288'
 paper_palettes['CNN Scoring Rescore'] = '#ffd91c'
 paper_palettes['CNN Scoring Refine'] = '#877b25'
 paper_palettes['Experiment'] = '#498540'
+paper_palettes['CNN'] = '#ffd91c'
+paper_palettes['CNNscore'] = '#ffd91c'
+paper_palettes['CNNaffinity'] = '#6da4c0'
+paper_palettes['Overlap'] = sns.color_palette()[0]
+paper_palettes['Overlap L2'] = sns.color_palette()[-1]
+paper_palettes['Overlap L1'] = sns.color_palette()[-3]
+paper_palettes['Overlap Mult'] = sns.color_palette()[2]
+paper_palettes['Overlap Sum'] = sns.color_palette()[4]
+paper_palettes['Overlap Threshold'] = sns.color_palette()[6]
 swarm_markers = ['^', '>', '*', 's', 'o', '<']
 blue_star = mlines.Line2D([], [], color='black', marker='^', linestyle='None',
                                   markersize=10, label='Blue stars')
@@ -48,7 +62,6 @@ red_square = mlines.Line2D([], [], color='red', marker='s', linestyle='None',
 purple_triangle = mlines.Line2D([], [], color='purple', marker='^',
         linestyle='None',
                                   markersize=10, label='Purple triangles')
-
 # In matplotlib < 1.5, plt.fill_between does not have a 'step'
 # argument
 step_kwargs = ({'step': 'post'}
@@ -77,7 +90,8 @@ def calc_auc_and_pr(target_and_method, target_predictions):
 def mean_auc(data, methods, targets, noskill, args):
         #use this palette if the methods don't correspond to methods used in
         #any of the old papers, which have associated colors
-        backup_palette = sns.color_palette("Set1", n_colors=len(methods), desat=.5)
+        backup_palette = sns.color_palette("hls", n_colors=len(methods),
+                desat=.5).as_hex()
 
         #overall_auc tracks and reports the average AUC across all targets
         #bytarget tracks and reports the AUC for each target for each method
@@ -89,8 +103,8 @@ def mean_auc(data, methods, targets, noskill, args):
             boxplot_dat = []
         total_plots = len(targets)
         if total_plots > 9:
-            mpl.rcParams['xtick.labelsize'] = 8
-            mpl.rcParams['ytick.labelsize'] = 8
+            mpl.rcParams['xtick.labelsize'] = 10
+            mpl.rcParams['ytick.labelsize'] = 10
         grid_width = int(math.ceil(math.sqrt(total_plots)))
         grid_length = int(math.ceil(float(total_plots)/grid_width))
         fig,ax = plt.subplots(figsize=(16,16))
@@ -139,6 +153,8 @@ def mean_auc(data, methods, targets, noskill, args):
                     legend_dict['AUC'][plot_num].plot(fpr, tpr, color=color,
                             label=label,
                             zorder=2) 
+                    legend_dict['AUC'][plot_num].set(ylim=(0.0, 1.0))
+                    legend_dict['AUC'][plot_num].set(xlim=(0.0, 1.0))
                 else:
                     label = '%s, APS=%0.2f' % (t[1], aps) if total_plots == 1 else t[1]
                     legend_dict['APS'][plot_num].step(recall, precision, alpha=0.2,
@@ -152,27 +168,29 @@ def mean_auc(data, methods, targets, noskill, args):
                 num_lines[plot_num] += 1
                 if int(plot_num) / grid_width == grid_length-1:
                     if chosen_stat == 'AUC':
-                        legend_dict['AUC'][plot_num].set_xlabel('False Positive Rate')
+                        legend_dict['AUC'][plot_num].set_xlabel('FPR')
                     else:
                         legend_dict['APS'][plot_num].set_xlabel('Recall')
                 if plot_num % grid_width == 0:
                     if chosen_stat == 'AUC':
-                        legend_dict['AUC'][plot_num].set_ylabel('True Positive Rate')
+                        legend_dict['AUC'][plot_num].set_ylabel('TPR')
                     else:
                         legend_dict['APS'][plot_num].set_ylabel('Precision')
                 if num_lines[plot_num] == len(methods):
                     if chosen_stat == 'AUC':
-                        legend_dict['AUC'][plot_num].set_title('Target %s' % (t[0]))
+                        legend_dict['AUC'][plot_num].set_title('%s' % (t[0]))
                     else:
                         legend_dict['APS'][plot_num].set_title('Target %s' % (t[0]))
                     #add in line showing random performance
                     if chosen_stat == 'AUC':
-                        legend_dict['AUC'][plot_num].plot([0, 1], [0, 1], color='gray', lw=2,
+                        legend_dict['AUC'][plot_num].plot([0, 1], [0, 1],
+                                color='gray',
                            linestyle='--', zorder=1)
                     else:
                         target_noskill = noskill[t[0]][0]/float(noskill[t[0]][1])
                         legend_dict['APS'][plot_num].plot([0, 1],
-                                [target_noskill, target_noskill], color='gray', lw=2,
+                                [target_noskill, target_noskill], color='gray',
+                                lw=2,
                            linestyle='--', zorder=1)
                     if total_plots == 1:
                         if chosen_stat == 'AUC':
@@ -208,6 +226,16 @@ def mean_auc(data, methods, targets, noskill, args):
             handles = [handles[i] for i in indices]
             labels = [labels[i] for i in indices]
             fig.legend(handles, labels, loc='lower center', ncol=3, frameon=True)
+        elif args.color_scheme == 'overlap':
+            indices = []
+            # overlap_order = ['Vina', 'CNN','CNNscore', 'CNNaffinity', 'Overlap L2', 'Overlap Mult']
+            overlap_order = ['Overlap Mult', 'Overlap L2','Overlap Threshold', 'CNN','CNNscore', 'CNNaffinity', 'Vina']
+            for label in overlap_order:
+                if label in labels:
+                    indices.append(labels.index(label))
+            handles = [handles[i] for i in indices]
+            labels = [labels[i] for i in indices]
+            fig.legend(handles, labels, loc='lower center', ncol=2, frameon=True)
         else:
             legend = fig.legend(handles, labels, loc='best', frameon=True)
 
@@ -218,7 +246,7 @@ def mean_auc(data, methods, targets, noskill, args):
             #automated? if you are using this, you may need to fiddle with
             #these numbers and be aware that if you try to use tight_layout it
             #seems to override whatever you do here
-            fig.subplots_adjust(hspace=0.05, wspace=0.45)
+            fig.subplots_adjust(hspace=0.6, wspace=0.55)
         for method in overall_stats['AUC']:
 	    overall_stats['AUC'][method] /= total_plots
 	    overall_stats['APS'][method] /= total_plots
@@ -231,10 +259,14 @@ def mean_auc(data, methods, targets, noskill, args):
         auc_fig,auc_ax = plt.subplots()
         aps_fig,aps_ax = plt.subplots()
         if args.make_boxplot:
-            if args.color_scheme == 'd3r' or args.color_scheme == 'cnn':
+            if args.color_scheme:
                 palette = paper_palettes
             else:
-                palette = backup_palette
+                palette = {}
+                for method in methods:
+                    palette[method] = paper_palettes[method] if method in \
+                        paper_palettes else backup_palette[methods.index(method)]
+                # palette = backup_palette
             boxplot_df = pd.DataFrame(boxplot_dat)
             #if we're doing the d3r paper figs, David wants a different marker
             #style for each target because having per-target ROC plots isn't
@@ -267,6 +299,22 @@ def mean_auc(data, methods, targets, noskill, args):
                         frameon=True)
                 sns.boxplot(x='Method', y='AUC', data=boxplot_df,
                         color='white', order=cnnpaper_order, ax=auc_ax)
+            if args.color_scheme == 'overlap':
+                overlap_order = ['Overlap Mult', 'Overlap Threshold', 'Overlap L2', 'Overlap L1', 'CNNscore', 'CNNaffinity', 'Vina']
+                sns.swarmplot(x='Method', y='AUC',
+                        data=boxplot_df, split=True, edgecolor='black', size=7,
+                        linewidth=0, palette = palette, ax=auc_ax,
+                        order=overlap_order)
+                sns.swarmplot(x='Method', y='APS',
+                        data=boxplot_df, split=True, edgecolor='black', size=7,
+                        linewidth=0, palette = palette, ax=aps_ax, 
+                        order=overlap_order)
+                sns.boxplot(x='Method', y='AUC', data=boxplot_df,
+                        color='white', ax=auc_ax, 
+                        order=overlap_order)
+                sns.boxplot(x='Method', y='APS', data=boxplot_df,
+                        color='white', ax=aps_ax, 
+                        order=overlap_order)
             else:
                 sns.swarmplot(x='Method', y='AUC',
                         data=boxplot_df, split=True, edgecolor='black', size=7,
@@ -279,12 +327,13 @@ def mean_auc(data, methods, targets, noskill, args):
                 sns.boxplot(x='Method', y='APS', data=boxplot_df,
                         color='white', ax=aps_ax)
             #sigh
-            auc_ax.set_ylabel('AUCs')
+            auc_ax.set_ylabel('AUC')
             auc_ax.set_xlabel('')
             auc_ax.set(ylim=(0,1.1))
             auc_xlims = auc_ax.get_xlim()
             auc_ax.plot([auc_xlims[0],auc_xlims[1]],[0.5, 0.5], linestyle='--', color='gray',
-                    lw=2, zorder=1, alpha=0.5)
+                    zorder=1, alpha=0.5)
+            # if not args.color_scheme == 'overlap':
             for tick in auc_ax.get_xticklabels():
                 tick.set_rotation(45)
             #APS
@@ -314,7 +363,8 @@ if __name__=='__main__':
 associated with each method')
         parser.add_argument('-pr', '--prec_rec', default=False,
                 action='store_true', help='Plot AUPR instead of AUC.')
-        parser.add_argument('-color_scheme', required=False, choices=['cnn', 'd3r'], 
+        parser.add_argument('-color_scheme', required=False, choices=['cnn',
+            'd3r', 'overlap'], 
             help='Specify color scheme, choosing from the one used in the CNN \
 paper or the one used in the 2018 D3R paper; if used, the \
 predictions files must have names indicating the correct methods to \

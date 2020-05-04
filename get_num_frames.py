@@ -12,6 +12,6 @@ trajectory = sys.argv[2]
 try:
     frames = MDAnalysis.Universe(topology,trajectory)
 except:
-    print '0'
+    print('0')
     sys.exit(1)
-print (frames.trajectory.totaltime + frames.trajectory.dt) * 1e-3
+print((frames.trajectory.totaltime + frames.trajectory.dt) * 1e-3)
