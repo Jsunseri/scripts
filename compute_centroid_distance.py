@@ -55,4 +55,4 @@ for mol in mols:
     centroid = get_centroid(mol)
     terms = zip(origin, centroid)
     diffs = [x[1]-x[0] for x in terms]
-    print(get_len(centroid))
+    print(get_len(diffs))
