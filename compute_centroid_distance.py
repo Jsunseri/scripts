@@ -1,41 +1,39 @@
 #!/usr/bin/env python
 
-from rdkit.Chem import AllChem
-from rdkit.Chem.rdMolTransforms import ComputeCentroid
+import pybel
 import argparse,os
 
-def parse_file(fname):
+def get_ftype(fname):
+    """ 
+    given a molfile, return the ftype for openbabel
     """
-    given a filename, use the extension to parse with rdkit; return mol or
-    supplier with an indicator of whether it's a supplier or not
-    """
-    gz = False 
     root,ext = os.path.splitext(fname)
     if ext == ".gz":
         ext = os.path.splitext(root)[-1]
-        gz = True
-    if gz:
-        if ext == ".sdf":
-            return (AllChem.SDMolSupplier(fname, strictParsing=False), True)
-        else:
-            sys.exit("Unsupported extension %s.gz" %ext)
-    else:
-        if ext == ".sdf" or ext == ".mol":
-            return (AllChem.MolFromMolFile(fname, sanitize=False), False)
-        elif ext == ".mol2":
-            return (AllChem.MolFromMol2File(fname, sanitize=False), False)
-        elif ext == ".pdb":
-            return (AllChem.MolFromPDBFile(fname, sanitize=False), False)
-        else:
-            sys.exit("Unsupported extension %s.gz" %ext)
+    ext = ext.split('.')[-1]
+    return ext
 
-def print_dist(mol, ref):
-    """ 
-    given two mols, print the distance between their centroids
+def get_centroid(mol):
     """
-    origin = ComputeCentroid(ref.GetConformer(0))
-    centroid = ComputeCentroid(mol.GetConformer(0))
-    print((centroid - origin).length())
+    given an openbabel mol, compute the centroid
+    """
+    mol.removeh()
+    centroid = [0]*3
+    natoms = len(mol.atoms)
+    for a in mol.atoms:
+        centroid[0] += a.coords[0]
+        centroid[1] += a.coords[1]
+        centroid[2] += a.coords[2]
+    centroid[0] /= natoms
+    centroid[1] /= natoms
+    centroid[2] /= natoms
+    return centroid
+
+def get_len(some_vec):
+    """
+    given some vector, return its length
+    """
+    return sum([x*x for x in some_vec])**0.5
 
 parser = argparse.ArgumentParser(description="Compute distance between centroids of ref and other")
 parser.add_argument("-r", "--ref", help="Reference molecule whose centroid will be used as the origin for the distance calculation; if more than one conformer, only the first will be used")
@@ -43,13 +41,18 @@ parser.add_argument("-m", "--mols", help="Other molecules, whose centroids will 
 
 args = parser.parse_args()
 
-ref,is_supplier = parse_file(args.ref)
-if is_supplier:
-    ref = ref.NextMol()
+# read in ref
+ext = get_ftype(args.ref)
+ref = next(pybel.readfile(ext, args.ref))
+origin = get_centroid(ref)
 
-mol,is_supplier = parse_file(args.mols)
-if is_supplier:
-    for m in mol:
-        print_dist(m)
-else:
-    print_dist(mol)
+# read in mols
+ext = get_ftype(args.mols)
+mols = pybel.readfile(ext, args.mols)
+
+# print distances
+for mol in mols:
+    centroid = get_centroid(mol)
+    terms = zip(origin, centroid)
+    diffs = [x[1]-x[0] for x in terms]
+    print(get_len(centroid))
